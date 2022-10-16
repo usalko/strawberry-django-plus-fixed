@@ -1,1 +1,1 @@
-strawberry-graphql[django]==0.109.0
+strawberry-graphql[django]>=0.134.3

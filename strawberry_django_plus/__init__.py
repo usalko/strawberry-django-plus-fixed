@@ -51,6 +51,9 @@ def _field_init(self, *args, **kwargs):
             while isinstance(base_resolver, StrawberryResolver):
                 base_resolver = base_resolver.wrapped_func
             kwargs["description"] = _get_doc(base_resolver)
+            
+    if "metadata" in kwargs:
+        kwargs.pop("metadata")
 
     ret = _original_field_init(self, *args, **kwargs)
 
