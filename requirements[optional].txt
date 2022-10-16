@@ -1,0 +1,6 @@
+django-debug-toolbar==3.5.0
+django-guardian==2.4.0
+django-extensions==3.2.1
+strawberry-graphql-django==0.6
+django-choices-field==2.1
+# django>=3.2.0
