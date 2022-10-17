@@ -69,6 +69,11 @@ class ProjectType(relay.Node):
 
 @gql.django.filter(Milestone, lookups=True)
 class MilestoneFilter:
+    
+    _or: Optional['MilestoneFilter']
+    _not: Optional['MilestoneFilter']
+    _and: Optional['MilestoneFilter']
+
     name: gql.auto
     project: gql.auto
     search: Optional[str]
