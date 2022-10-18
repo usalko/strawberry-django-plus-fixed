@@ -10,11 +10,21 @@ from strawberry_django import filters as _filters
 from strawberry_django import utils
 from strawberry_django.fields.field import field as _field
 
+from django.db.models import QuerySet
+from django.db.models import Q
+
+
 from . import field
 from .relay import GlobalID, connection, node
 from .type import input
 
 _T = TypeVar("_T")
+
+_LOGICAL_EXPRESSIONS = {
+    '_or': 'or',
+    '_and': 'and',
+    '_not': 'not',
+}
 
 
 def _normalize_value(value: Any):
@@ -37,6 +47,11 @@ def _build_filter_kwargs(filters):
 
         # Unset means we are not filtering this. None is still acceptable
         if field_value is UNSET:
+            continue
+
+        # Logical expressions
+        if field_name in _LOGICAL_EXPRESSIONS:
+            print(field_name)
             continue
 
         if isinstance(field_value, Enum):
@@ -65,8 +80,39 @@ def _build_filter_kwargs(filters):
     return filter_kwargs, filter_methods
 
 
-# Replace build_filter_kwargs by our implementation that can handle GlobalID
-_filters.build_filter_kwargs = _build_filter_kwargs
+def _apply(filters, queryset: QuerySet, info=UNSET, pk=UNSET) -> QuerySet:
+    if pk is not UNSET:
+        queryset = queryset.filter(pk=pk)
+
+    if (
+        filters is UNSET
+        or filters is None
+        or not hasattr(filters, "_django_type")
+        or not filters._django_type.is_filter
+    ):
+        return queryset
+
+    filter_method = getattr(filters, "filter", None)
+    if filter_method:
+        return filter_method(queryset)
+
+    filter_kwargs, filter_methods = _build_filter_kwargs(filters)
+    queryset = queryset.filter(**filter_kwargs)
+    for filter_method in filter_methods:
+        if _filters.function_allow_passing_info(filter_method):
+            queryset = filter_method(queryset=queryset, info=info)
+
+        else:
+            queryset = filter_method(queryset=queryset)
+
+    return queryset
+
+
+## Replace build_filter_kwargs by our implementation that can handle GlobalID
+#_filters.build_filter_kwargs = _build_filter_kwargs
+
+# Replace apply filter for the generate logical combination of the filters
+_filters.apply = _apply
 
 
 @__dataclass_transform__(
