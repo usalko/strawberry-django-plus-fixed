@@ -2,6 +2,7 @@ import dataclasses
 import types
 from typing import (
     Callable,
+    ForwardRef,
     Literal,
     Optional,
     Sequence,
@@ -250,13 +251,21 @@ def _process_type(
 ) -> _O:
     original_annotations = cls.__dict__.get("__annotations__", {})
 
+    is_filter = kwargs.pop("is_filter", False)
+    if is_filter:
+        cls.__annotations__ = {**cls.__annotations__, ** {
+            "_and": Optional[ForwardRef(cls.__name__)],
+            "_or": Optional[ForwardRef(cls.__name__)],
+            "_not": Optional[ForwardRef(cls.__name__)],
+        }}
+
     django_type = StrawberryDjangoType(
         origin=cls,
         model=model,
         field_cls=field_cls,
         is_input=kwargs.get("is_input", False),
         is_partial=kwargs.pop("partial", False),
-        is_filter=kwargs.pop("is_filter", False),
+        is_filter=is_filter,
         filters=filters,
         order=order,
         pagination=pagination,
