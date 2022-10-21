@@ -1010,7 +1010,7 @@ sanic = ["sanic (>=20.12.2,<22.0.0)"]
 type = "git"
 url = "https://github.com/usalko/strawberry.git"
 reference = "fix-fields-order"
-resolved_reference = "10814939869ff761a801b93a08fc7500d1710e20"
+resolved_reference = "b1e66e54017947a32e5d8c321b4ec67c03ec0119"
 
 [[package]]
 name = "strawberry-graphql-django"
