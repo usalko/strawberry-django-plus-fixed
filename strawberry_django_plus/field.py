@@ -192,7 +192,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         if self.base_resolver is not None:
             result = self.resolver(source, info, args, kwargs)
         elif source is None:
-            result = self.model._default_manager.all()
+            result = self.model._default_manager.all().distinct()
         else:
             # Small optimization to async resolvers avoid having to call it in an sync_to_async
             # context if the value is already cached, since it will not hit the db anymore

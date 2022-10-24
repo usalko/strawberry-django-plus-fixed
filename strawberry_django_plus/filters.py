@@ -141,7 +141,7 @@ def _apply(filters, queryset: QuerySet, info=UNSET, pk=UNSET) -> QuerySet:
         else:
             queryset = filter_method(queryset=queryset)
 
-    return queryset
+    return queryset.distinct()
 
 
 ## Replace build_filter_kwargs by our implementation that can handle GlobalID
