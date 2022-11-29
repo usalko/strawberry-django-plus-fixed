@@ -20,7 +20,7 @@ from typing import (
 )
 
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Max
 from django.db.models.fields.related_descriptors import (
     ForwardManyToOneDescriptor,
     ReverseManyToOneDescriptor,
@@ -37,6 +37,7 @@ from strawberry.type import StrawberryContainer, StrawberryType
 from strawberry.types.fields.resolver import StrawberryResolver
 from strawberry.types.info import Info
 from strawberry.types.types import TypeDefinition
+from strawberry.types.nodes import SelectedField
 from strawberry.union import StrawberryUnion
 from strawberry_django.arguments import argument
 from strawberry_django.fields.field import (
@@ -182,6 +183,20 @@ class StrawberryDjangoField(_StrawberryDjangoField):
             resolver = resolvers.async_safe(resolver)
         return resolver
 
+    def _make_filter_from_selected_fields(self, selected_fields: List[SelectedField], parent: str = '', qs: QuerySet = None):
+        #self.model._default_manager.values('lexeme__name').annotate(Max('id')).values('id__max') = None
+        result = qs if qs else self.model._default_manager.all()
+        for selected_field in selected_fields:
+            django_field_name = f'{parent}__{selected_field.name}' if parent else selected_field.name
+            if selected_field.selections:
+                result = self._make_filter_from_selected_fields(selected_field.selections, django_field_name, result)
+            else:
+                result = result.values(django_field_name)
+        return result
+
+    def _has_ability_to_apply_distinct(self, selected_fields: List[SelectedField]):
+        return selected_fields and len(selected_fields) == 1 and not any(any(field.name == 'id' for field in selected_field.selections) for selected_field in selected_fields)
+
     def get_result(
         self,
         source: Optional[models.Model],
@@ -192,7 +207,13 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         if self.base_resolver is not None:
             result = self.resolver(source, info, args, kwargs)
         elif source is None:
-            result = self.model._default_manager.all().distinct()
+            # DISTINCT by default
+            # It's implemented as additional filter induced from results
+            if self._has_ability_to_apply_distinct(info.selected_fields):
+                distinguished_ids = self._make_filter_from_selected_fields(info.selected_fields[0].selections).annotate(Max('id')).values('id__max')
+                result = self.model._default_manager.filter(id__in=distinguished_ids)
+            else:
+                result = self.model._default_manager.all().distinct()
         else:
             # Small optimization to async resolvers avoid having to call it in an sync_to_async
             # context if the value is already cached, since it will not hit the db anymore
