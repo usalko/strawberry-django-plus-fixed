@@ -20,7 +20,7 @@ from typing import (
 )
 
 from django.db import models
-from django.db.models import QuerySet, Max
+from django.db.models import QuerySet, Max, Q
 from django.db.models.fields.related_descriptors import (
     ForwardManyToOneDescriptor,
     ReverseManyToOneDescriptor,
@@ -39,11 +39,13 @@ from strawberry.types.info import Info
 from strawberry.types.types import TypeDefinition
 from strawberry.types.nodes import SelectedField
 from strawberry.union import StrawberryUnion
+from strawberry.schema.schema import Schema
 from strawberry_django.arguments import argument
 from strawberry_django.fields.field import (
     StrawberryDjangoField as _StrawberryDjangoField,
 )
 from strawberry_django.utils import get_django_model, unwrap_type
+from re import sub
 
 from . import relay
 from .descriptors import ModelProperty
@@ -183,15 +185,23 @@ class StrawberryDjangoField(_StrawberryDjangoField):
             resolver = resolvers.async_safe(resolver)
         return resolver
 
-    def _make_filter_from_selected_fields(self, selected_fields: List[SelectedField], parent: str = '', qs: QuerySet = None):
+    def camelBack_2_underscores(self, text: str):
+        return sub(r'[A-Z]', lambda x: '_' + x.group(0).lower(), text)
+
+    def _make_filter_from_selected_fields(self, schema: Schema, selected_fields: List[SelectedField], parent: str = ''):
         #self.model._default_manager.values('lexeme__name').annotate(Max('id')).values('id__max') = None
-        result = qs if qs else self.model._default_manager.all()
+        results = []
         for selected_field in selected_fields:
-            django_field_name = f'{parent}__{selected_field.name}' if parent else selected_field.name
+            django_field_name = f'{parent}__{self.camelBack_2_underscores(selected_field.name)}' if parent else self.camelBack_2_underscores(selected_field.name)
             if selected_field.selections:
-                result = self._make_filter_from_selected_fields(selected_field.selections, django_field_name, result)
+                results.append(self._make_filter_from_selected_fields(schema, selected_field.selections, django_field_name))
             else:
-                result = result.values(django_field_name)
+                results.append(Q(id__in=self.model._default_manager.values(django_field_name).annotate(Max('id')).values('id__max')))
+        if len(results) == 1:
+            return results[0]
+        result = results[0]
+        for i in range(1, len(results)):
+            result = result | results[i]
         return result
 
     def _has_ability_to_apply_distinct(self, selected_fields: List[SelectedField]):
@@ -210,8 +220,8 @@ class StrawberryDjangoField(_StrawberryDjangoField):
             # DISTINCT by default
             # It's implemented as additional filter induced from results
             if self._has_ability_to_apply_distinct(info.selected_fields):
-                distinguished_ids = self._make_filter_from_selected_fields(info.selected_fields[0].selections).annotate(Max('id')).values('id__max')
-                result = self.model._default_manager.filter(id__in=distinguished_ids)
+                distinguished_ids_filter = self._make_filter_from_selected_fields(info.schema, info.selected_fields[0].selections)
+                result = self.model._default_manager.filter(distinguished_ids_filter)
             else:
                 result = self.model._default_manager.all().distinct()
         else:
