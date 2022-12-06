@@ -191,7 +191,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
     def _make_filter_from_selected_fields(self, schema: Schema, selected_fields: List[SelectedField], parent: str = ''):
         #self.model._default_manager.values('lexeme__name').annotate(Max('id')).values('id__max') = None
         results = []
-        for selected_field in selected_fields:
+        for selected_field in filter(lambda selected_field: not selected_field.name.startswith('__'), selected_fields):
             django_field_name = f'{parent}__{self.camelBack_2_underscores(selected_field.name)}' if parent else self.camelBack_2_underscores(selected_field.name)
             if selected_field.selections:
                 results.append(self._make_filter_from_selected_fields(schema, selected_field.selections, django_field_name))
