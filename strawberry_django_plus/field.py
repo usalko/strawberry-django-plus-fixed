@@ -193,7 +193,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         results = []
         for selected_field in filter(lambda selected_field: not selected_field.name.startswith('__'), selected_fields):
             django_field_name = f'{parent}__{self.camelBack_2_underscores(selected_field.name)}' if parent else self.camelBack_2_underscores(selected_field.name)
-            if selected_field.selections:
+            if selected_field.selections and getattr(self.model, django_field_name).field.is_relation:
                 results.append(self._make_filter_from_selected_fields(schema, selected_field.selections, django_field_name))
             else:
                 results.append(Q(id__in=self.model._default_manager.values(django_field_name).annotate(Max('id')).values('id__max')))
