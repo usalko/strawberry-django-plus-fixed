@@ -197,6 +197,8 @@ class StrawberryDjangoField(_StrawberryDjangoField):
                 results.append(self._make_filter_from_selected_fields(schema, selected_field.selections, django_field_name))
             elif hasattr(self.model, parent or selected_field.name):
                 results.append(Q(id__in=self.model._default_manager.values(django_field_name).annotate(Max('id')).values('id__max')))
+        if len(results) == 0:
+            return [] # All fields are calculated in graphql schema
         if len(results) == 1:
             return results[0]
         result = results[0]
@@ -219,8 +221,10 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         elif source is None:
             # DISTINCT by default
             # It's implemented as additional filter induced from results
+            distinguished_ids_filter = []
             if self._has_ability_to_apply_distinct(info.selected_fields):
                 distinguished_ids_filter = self._make_filter_from_selected_fields(info.schema, info.selected_fields[0].selections)
+            if distinguished_ids_filter:
                 result = self.model._default_manager.filter(distinguished_ids_filter)
             else:
                 result = self.model._default_manager.all().distinct()
