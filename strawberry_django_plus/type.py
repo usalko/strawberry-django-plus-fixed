@@ -1,8 +1,10 @@
+from enum import Enum
 import dataclasses
 import types
 from typing import (
     Callable,
     ForwardRef,
+    List,
     Literal,
     Optional,
     Sequence,
@@ -45,6 +47,25 @@ from .utils.resolvers import (
     resolve_model_node,
     resolve_model_nodes,
 )
+
+
+class JointType(Enum):
+
+    AND = '_and'
+    OR = '_or'
+    NOT = '_not'
+
+    @classmethod
+    def choices(cls):
+        return tuple((i, i.value) for i in cls)
+
+    @classmethod
+    def logical_expressions(cls):
+        return {value: key for key, value in cls.choices()}
+
+
+_LOGICAL_EXPRESSIONS = JointType.logical_expressions()
+
 
 __all = [
     "StrawberryDjangoType",
@@ -254,9 +275,9 @@ def _process_type(
     is_filter = kwargs.pop("is_filter", False)
     if is_filter:
         cls.__annotations__ = {**cls.__annotations__, ** {
-            "_and": Optional[ForwardRef(cls.__name__)],
-            "_or": Optional[ForwardRef(cls.__name__)],
-            "_not": Optional[ForwardRef(cls.__name__)],
+            JointType.AND.value: List[ForwardRef(cls.__name__)],
+            JointType.OR.value: List[ForwardRef(cls.__name__)],
+            JointType.NOT.value: Optional[ForwardRef(cls.__name__)],
         }}
 
     django_type = StrawberryDjangoType(

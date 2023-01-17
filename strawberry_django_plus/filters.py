@@ -15,26 +15,9 @@ from django.db.models import Q
 
 from . import field
 from .relay import GlobalID, connection, node
-from .type import input
+from .type import input, JointType, _LOGICAL_EXPRESSIONS
 
 _T = TypeVar("_T")
-
-class JointType(Enum):
-
-    AND = '_and'
-    OR = '_or'
-    NOT = '_not'
-
-    @classmethod
-    def choices(cls):
-        return tuple((i, i.value) for i in cls)
-
-    @classmethod
-    def logical_expressions(cls):
-        return {value: key for key, value in cls.choices()}
-
-
-_LOGICAL_EXPRESSIONS = JointType.logical_expressions()
 
 
 def _normalize_value(value: Any):
