@@ -14,6 +14,7 @@ from typing_extensions import Annotated
 from strawberry_django_plus import gql
 from strawberry_django_plus.directives import SchemaDirectiveExtension
 from strawberry_django_plus.gql import relay
+from strawberry_django_plus.mutations import resolvers
 from strawberry_django_plus.optimizer import DjangoOptimizerExtension
 from strawberry_django_plus.permissions import (
     HasObjPerm,
@@ -23,7 +24,7 @@ from strawberry_django_plus.permissions import (
     IsSuperuser,
 )
 
-from .models import Assignee, Issue, Milestone, Project, Tag
+from .models import Assignee, Issue, Milestone, Project, Quiz, Tag
 
 UserModel = cast(Type[AbstractUser], get_user_model())
 
@@ -140,6 +141,12 @@ class TagType(relay.Node):
     issues: relay.Connection[IssueType]
 
 
+@gql.django.type(Quiz)
+class QuizType(relay.Node):
+    title: gql.auto
+    sequence: gql.auto
+
+
 @gql.django.partial(Tag)
 class TagInputPartial(gql.NodeInputPartial):
     name: gql.auto
@@ -148,7 +155,7 @@ class TagInputPartial(gql.NodeInputPartial):
 @gql.django.input(Issue)
 class IssueInput:
     name: gql.auto
-    milestone: gql.auto
+    milestone: "MilestoneInputPartial"
     priority: gql.auto
     kind: gql.auto
     tags: Optional[List[gql.NodeInput]]
@@ -191,6 +198,7 @@ class MilestoneIssueInput:
 @gql.django.partial(Project)
 class ProjectInputPartial(gql.NodeInputPartial):
     name: gql.auto
+    milestones: Optional[List["MilestoneInputPartial"]]
 
 
 @gql.django.input(Milestone)
@@ -198,6 +206,11 @@ class MilestoneInput:
     name: gql.auto
     project: ProjectInputPartial
     issues: Optional[List[MilestoneIssueInput]]
+
+
+@gql.django.partial(Milestone)
+class MilestoneInputPartial(gql.NodeInputPartial):
+    name: gql.auto
 
 
 @gql.type
@@ -295,6 +308,8 @@ class Mutation:
     update_issue: IssueType = gql.django.update_mutation(IssueInputPartial)
     delete_issue: IssueType = gql.django.delete_mutation(gql.NodeInput)
 
+    update_project: ProjectType = gql.django.update_mutation(ProjectInputPartial)
+
     create_milestone: MilestoneType = gql.django.create_mutation(MilestoneInput)
 
     @gql.django.input_mutation
@@ -317,6 +332,18 @@ class Mutation:
                 cost=cost,
                 status=status or Project.Status.ACTIVE,
                 due_date=due_date,
+            ),
+        )
+
+    @gql.django.input_mutation
+    def create_quiz(self, info: Info, title: str, full_clean_options: bool = False) -> QuizType:
+        return cast(
+            QuizType,
+            resolvers.create(
+                info,
+                Quiz,
+                {"title": title},
+                full_clean={"exclude": ["sequence"]} if full_clean_options else True,
             ),
         )
 

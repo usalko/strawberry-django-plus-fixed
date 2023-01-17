@@ -161,7 +161,7 @@ def _get_model_hints(
             store |= attr_store.with_prefix(prefix, info=info) if prefix else attr_store
 
         # Lastly, from the django field itself
-        model_fieldname: str = getattr(field, "django_name", field.python_name)
+        model_fieldname: str = getattr(field, "django_name", None) or field.python_name
         model_field = model_fields.get(model_fieldname, None)
         if model_field is not None:
             path = f"{prefix}{model_fieldname}"
@@ -300,7 +300,7 @@ def optimize(
             The current field execution info
         config:
             Optional config to use when doing the optimization
-        config:
+        store:
             Optional initial store to use for the optimization
 
     Returns:
@@ -505,7 +505,8 @@ class OptimizerStore:
                 # In this case, just replace it.
                 if not existing or isinstance(existing, str):
                     to_prefetch[path] = p
-                    abort_only.add(path)
+                    if isinstance(existing, str):
+                        abort_only.add(path)
                     continue
 
                 p1 = PrefetchInspector(existing)

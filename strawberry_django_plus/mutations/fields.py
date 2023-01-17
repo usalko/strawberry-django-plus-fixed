@@ -143,9 +143,11 @@ class DjangoMutationField(StrawberryDjangoField):
                 type_ = type_.annotation
 
             types_ = tuple(get_possible_types(type_))
-            type_ = strawberry.union(f"{cap_name}Payload", types_ + (OperationInfo,))
+            if OperationInfo not in types_:
+                types_ = types_ + (OperationInfo,)
+            type_ = strawberry.union(f"{cap_name}Payload", types_)
 
-        self.type_annotation = type_
+        super(DjangoMutationField, self.__class__).type.fset(self, type_)  # type:ignore
 
     def get_result(
         self,
@@ -232,17 +234,23 @@ class DjangoCreateMutationField(DjangoInputMutationField):
 
     """
 
+    def __init__(self, *args, **kwargs):
+        self.full_clean: bool = kwargs.pop("full_clean", True)
+        super().__init__(*args, **kwargs)
+
     @async_safe
     def resolver(
         self,
         source: Any,
         info: Info,
-        data: type,
+        data: object,
         args: List[Any],
         kwargs: Dict[str, Any],
     ) -> Any:
         assert data is not None
-        return resolvers.create(info, self.model, resolvers.parse_input(info, vars(data)))
+        return resolvers.create(
+            info, self.model, resolvers.parse_input(info, vars(data)), full_clean=self.full_clean
+        )
 
 
 class DjangoUpdateMutationField(DjangoInputMutationField):
@@ -253,12 +261,16 @@ class DjangoUpdateMutationField(DjangoInputMutationField):
 
     """
 
+    def __init__(self, full_clean=True, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.full_clean = full_clean
+
     @async_safe
     def resolver(
         self,
         source: Any,
         info: Info,
-        data: type,
+        data: object,
         args: List[Any],
         kwargs: Dict[str, Any],
     ) -> Any:
@@ -273,7 +285,9 @@ class DjangoUpdateMutationField(DjangoInputMutationField):
         token = DjangoOptimizerExtension.enabled.set(False)
         try:
             instance = get_with_perms(pk, info, required=True, model=self.model)
-            return resolvers.update(info, instance, resolvers.parse_input(info, vdata))
+            return resolvers.update(
+                info, instance, resolvers.parse_input(info, vdata), full_clean=self.full_clean
+            )
         finally:
             DjangoOptimizerExtension.enabled.reset(token)
 
@@ -291,7 +305,7 @@ class DjangoDeleteMutationField(DjangoInputMutationField):
         self,
         source: Any,
         info: Info,
-        data: type,
+        data: object,
         args: List[Any],
         kwargs: Dict[str, Any],
     ) -> Any:
@@ -560,6 +574,7 @@ def create(
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
     handle_django_errors: bool = True,
+    full_clean: bool = True,
 ) -> Any:
     """Create mutation for django input fields.
 
@@ -592,6 +607,7 @@ def create(
         directives=directives,
         filters=filters,
         handle_django_errors=handle_django_errors,
+        full_clean=full_clean,
     )
 
 
@@ -611,6 +627,7 @@ def update(
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
     handle_django_errors: bool = True,
+    full_clean: bool = True,
 ) -> Any:
     """Update mutation for django input fields.
 
@@ -641,6 +658,7 @@ def update(
         directives=directives,
         filters=filters,
         handle_django_errors=handle_django_errors,
+        full_clean=full_clean,
     )
 
 

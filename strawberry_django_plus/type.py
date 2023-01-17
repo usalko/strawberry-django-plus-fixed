@@ -23,7 +23,7 @@ from django.db.models.fields.reverse_related import ManyToManyRel, ManyToOneRel
 import strawberry
 from strawberry import UNSET
 from strawberry.annotation import StrawberryAnnotation
-from strawberry.field import StrawberryField
+from strawberry.field import UNRESOLVED, StrawberryField
 from strawberry.types.fields.resolver import StrawberryResolver
 from strawberry.unset import UnsetType
 from strawberry.utils.typing import __dataclass_transform__
@@ -130,7 +130,7 @@ def _from_django_type(
 
         store = getattr(attr, "store", None)
         field = StrawberryDjangoField(
-            django_name=getattr(attr, "django_name", attr.name),
+            django_name=getattr(attr, "django_name", None) or attr.name,
             graphql_name=getattr(attr, "graphql_name", None),
             origin=getattr(attr, "origin", None),
             is_subscription=getattr(attr, "is_subscription", False),
@@ -187,11 +187,12 @@ def _from_django_type(
             raise  # field should exist, reraise caught exception
     else:
         field.is_relation = model_field.is_relation
-        field.django_name = resolve_model_field_name(
-            model_field,
-            is_input=django_type.is_input,
-            is_filter=bool(django_type.is_filter),
-        )
+        if not field.django_name:
+            field.django_name = resolve_model_field_name(
+                model_field,
+                is_input=django_type.is_input,
+                is_filter=bool(django_type.is_filter),
+            )
 
         # change relation field type to auto if field is inherited from another
         # type. for example if field is inherited from output type but we are
@@ -304,8 +305,8 @@ def _process_type(
     # update annotations and fields
     for f in fields:
         annotation = f.type_annotation.annotation if f.type_annotation is not None else f.type
-        if annotation is None:
-            annotation = StrawberryAnnotation(strawberry.auto)
+        if annotation is UNRESOLVED:
+            annotation = None
 
         cls.__annotations__[f.name] = annotation
         setattr(cls, f.name, f)

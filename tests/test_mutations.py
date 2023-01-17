@@ -374,6 +374,105 @@ def test_input_update_mutation(db, gql_client: GraphQLTestClient):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_input_nested_update_mutation(db, gql_client: GraphQLTestClient):
+    query = """
+    mutation CreateIssue ($input: IssueInputPartial!) {
+      updateIssue (input: $input) {
+        __typename
+        ... on OperationInfo {
+          messages {
+            kind
+            field
+            message
+          }
+        }
+        ... on IssueType {
+          id
+          name
+          milestone {
+            id
+            name
+          }
+          priority
+          kind
+        }
+      }
+    }
+    """
+    issue = IssueFactory.create(
+        name="Old name",
+        milestone=MilestoneFactory.create(),
+        priority=0,
+        kind=Issue.Kind.BUG,
+    )
+    milestone = MilestoneFactory.create(name="Something")
+
+    res = gql_client.query(
+        query,
+        {
+            "input": {
+                "id": to_base64("IssueType", issue.pk),
+                "name": "New name",
+                "milestone": {"id": to_base64("MilestoneType", milestone.pk), "name": "foo"},
+            }
+        },
+    )
+    assert res.data and isinstance(res.data["updateIssue"], dict)
+    assert res.data["updateIssue"]["milestone"]["name"] == "foo"
+    milestone.refresh_from_db()
+    assert milestone.name == "foo"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_input_update_m2m_set_not_null_mutation(db, gql_client: GraphQLTestClient):
+    query = """
+    mutation UpdateProject ($input: ProjectInputPartial!) {
+      updateProject (input: $input) {
+        __typename
+        ... on OperationInfo {
+          messages {
+            kind
+            field
+            message
+          }
+        }
+        ... on ProjectType {
+          id
+          name
+          status
+          dueDate
+          milestones {
+            id
+            name
+          }
+          cost
+        }
+      }
+    }
+    """
+    project = ProjectFactory.create(
+        name="Project Name",
+    )
+    milestone_1 = MilestoneFactory.create(project=project)
+    milestone_1_id = to_base64("MilestoneType", milestone_1.pk)
+    MilestoneFactory.create(project=project)
+
+    res = gql_client.query(
+        query,
+        {
+            "input": {
+                "id": to_base64("ProjectType", project.pk),
+                "milestones": [{"id": milestone_1_id}],
+            }
+        },
+    )
+    assert res.data and isinstance(res.data["updateProject"], dict)
+
+    assert len(res.data["updateProject"]["milestones"]) == 1
+    assert res.data["updateProject"]["milestones"][0]["id"] == milestone_1_id
+
+
+@pytest.mark.django_db(transaction=True)
 def test_input_update_m2m_set_mutation(db, gql_client: GraphQLTestClient):
     query = """
     mutation CreateIssue ($input: IssueInputPartial!) {
@@ -678,3 +777,105 @@ def test_input_delete_mutation(db, gql_client: GraphQLTestClient):
 
     with pytest.raises(Issue.DoesNotExist):
         Issue.objects.get(pk=issue.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_mutation_full_clean_without_kwargs(db, gql_client: GraphQLTestClient):
+    query = """
+    mutation CreateQuiz ($input: CreateQuizInput!) {
+      createQuiz (input: $input) {
+        __typename
+        ... on OperationInfo {
+          messages {
+            kind
+            field
+            message
+          }
+        }
+        ... on QuizType {
+          title
+          sequence
+        }
+      }
+    }
+    """
+    res = gql_client.query(
+        query,
+        {
+            "input": {
+                "title": "ABC",
+            }
+        },
+    )
+    expected = {"createQuiz": {"__typename": "QuizType", "sequence": 1, "title": "ABC"}}
+    assert res.data == expected
+    res = gql_client.query(
+        query,
+        {
+            "input": {
+                "title": "ABC",
+            }
+        },
+    )
+    expected = {
+        "createQuiz": {
+            "__typename": "OperationInfo",
+            "messages": [
+                {
+                    "field": "sequence",
+                    "kind": "VALIDATION",
+                    "message": "Quiz with this Sequence already exists.",
+                }
+            ],
+        }
+    }
+    assert res.data == expected
+
+
+@pytest.mark.django_db(transaction=True)
+def test_mutation_full_clean_with_kwargs(db, gql_client: GraphQLTestClient):
+    query = """
+    mutation CreateQuiz ($input: CreateQuizInput!) {
+      createQuiz (input: $input) {
+        __typename
+        ... on OperationInfo {
+          messages {
+            kind
+            field
+            message
+          }
+        }
+        ... on QuizType {
+          title
+          sequence
+        }
+      }
+    }
+    """
+    res = gql_client.query(
+        query,
+        {"input": {"title": "ABC", "fullCleanOptions": True}},
+    )
+    expected = {"createQuiz": {"__typename": "QuizType", "sequence": 1, "title": "ABC"}}
+    assert res.data == expected
+
+    res = gql_client.query(
+        query,
+        {"input": {"title": "ABC", "fullCleanOptions": True}},
+    )
+    expected = {"createQuiz": {"__typename": "QuizType", "sequence": 2, "title": "ABC"}}
+    assert res.data == expected
+
+    res = gql_client.query(
+        query,
+        {"input": {"title": "ABC", "fullCleanOptions": True}},
+    )
+    expected = {"createQuiz": {"__typename": "QuizType", "sequence": 3, "title": "ABC"}}
+    assert res.data == expected
+
+    res = gql_client.query(
+        query,
+        {"input": {"title": "ABC", "fullCleanOptions": True}},
+    )
+    expected = {"createQuiz": {"__typename": "QuizType", "sequence": 4, "title": "ABC"}}
+    assert res.data == expected
