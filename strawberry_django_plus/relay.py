@@ -3,7 +3,6 @@ import abc
 import base64
 import dataclasses
 import functools
-from functools import cached_property
 import inspect
 import math
 import sys
@@ -45,7 +44,12 @@ from strawberry.field import StrawberryField
 from strawberry.lazy_type import LazyType
 from strawberry.permission import BasePermission
 from strawberry.schema.types.scalar import DEFAULT_SCALAR_REGISTRY
-from strawberry.type import StrawberryList, StrawberryOptional
+from strawberry.type import (
+    StrawberryList,
+    StrawberryOptional,
+    StrawberryType,
+    StrawberryTypeVar,
+)
 from strawberry.types import Info
 from strawberry.types.fields.resolver import StrawberryResolver
 from strawberry.types.types import TypeDefinition
@@ -798,6 +802,10 @@ class RelayField(StrawberryField):
         return list(args.values())
 
     @functools.cached_property
+    def is_basic_field(self):
+        return False
+
+    @functools.cached_property
     def is_optional(self):
         return isinstance(self.type, StrawberryOptional)
 
@@ -840,10 +848,6 @@ class NodeField(RelayField):
                     description="The ID of the object.",
                 ),
             }
-
-    @cached_property
-    def is_basic_field(self):
-        return False
 
     def __call__(self, resolver):
         raise TypeError("NodeField cannot have a resolver, use a common field instead.")
@@ -962,6 +966,23 @@ class ConnectionField(RelayField):
 
         resolver = StrawberryResolver(resolver, type_override=type_override)
         return super().__call__(resolver)
+
+    @property
+    def type(self) -> Union[StrawberryType, type]:  # noqa:A003
+        # Strawberry 0.139+ resolves the field annotation first, but we need to use the resolver's
+        # type here because it gets modified by us in the __call__ method
+        if (
+            self.base_resolver is not None
+            and self.base_resolver.type is not None
+            and not isinstance(self.base_resolver.type, StrawberryTypeVar)
+        ):
+            return self.base_resolver.type
+
+        return super().type
+
+    @type.setter
+    def type(self, type_: Any) -> None:  # noqa:A003
+        super(ConnectionField, self.__class__).type.fset(self, type_)  # type:ignore
 
     @functools.cached_property
     def resolver_args(self) -> Set[str]:
