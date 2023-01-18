@@ -276,8 +276,8 @@ def _process_type(
     is_filter = kwargs.pop("is_filter", False)
     if is_filter:
         cls.__annotations__ = {**cls.__annotations__, ** {
-            JointType.AND.value: List[ForwardRef(cls.__name__)],
-            JointType.OR.value: List[ForwardRef(cls.__name__)],
+            JointType.AND.value: Optional[ForwardRef(cls.__name__)],
+            JointType.OR.value: Optional[ForwardRef(cls.__name__)],
             JointType.NOT.value: Optional[ForwardRef(cls.__name__)],
         }}
 
