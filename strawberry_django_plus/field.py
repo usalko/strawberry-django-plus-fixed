@@ -185,17 +185,29 @@ class StrawberryDjangoField(_StrawberryDjangoField):
             resolver = resolvers.async_safe(resolver)
         return resolver
 
-    def camelBack_2_underscores(self, text: str):
+    def camelBack_to_underscores(self, text: str):
         return sub(r'[A-Z]', lambda x: '_' + x.group(0).lower(), text)
+
+    @staticmethod
+    def _is_valid_django_model_attributes_path(django_model: models.Model, parent_attribute: str, attribute: str) -> bool:
+        if parent_attribute and hasattr(django_model, parent_attribute):
+            model_for_attribute = getattr(django_model, parent_attribute)
+            if hasattr(model_for_attribute, 'field') and model_for_attribute.field.many_to_many:
+                return hasattr(model_for_attribute.rel.identity[1], attribute)
+            elif hasattr(model_for_attribute, 'field') and model_for_attribute.field.is_relation:
+                return hasattr(model_for_attribute.field.type, attribute)
+            return True
+        return hasattr(django_model, attribute)
+
 
     def _make_filter_from_selected_fields(self, schema: Schema, selected_fields: List[SelectedField], parent: str = ''):
         #self.model._default_manager.values('lexeme__name').annotate(Max('id')).values('id__max') = None
         results = []
         for selected_field in filter(lambda selected_field: not selected_field.name.startswith('__'), selected_fields):
-            django_field_name = f'{parent}__{self.camelBack_2_underscores(selected_field.name)}' if parent else self.camelBack_2_underscores(selected_field.name)
+            django_field_name = f'{parent}__{self.camelBack_to_underscores(selected_field.name)}' if parent else self.camelBack_to_underscores(selected_field.name)
             if selected_field.selections and hasattr(self.model, django_field_name) and getattr(self.model, django_field_name).field.is_relation:
                 results.append(self._make_filter_from_selected_fields(schema, selected_field.selections, django_field_name))
-            elif hasattr(self.model, parent or selected_field.name):
+            elif self._is_valid_django_model_attributes_path(self.model, parent, selected_field.name):
                 results.append(Q(id__in=self.model._default_manager.values(django_field_name).annotate(Max('id')).values('id__max')))
         if len(results) == 0:
             return [] # All fields are calculated in graphql schema
