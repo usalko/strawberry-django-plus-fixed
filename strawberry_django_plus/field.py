@@ -219,7 +219,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         return result
 
     def _has_ability_to_apply_distinct(self, selected_fields: List[SelectedField]):
-        return selected_fields and len(selected_fields) == 1 and not any(any(field.name == 'id' for field in selected_field.selections) for selected_field in selected_fields)
+        return selected_fields and not any(any(field.name == 'id' for field in selected_field.selections) for selected_field in selected_fields)
 
     def get_result(
         self,
@@ -359,6 +359,20 @@ class StrawberryDjangoConnectionField(relay.ConnectionField, StrawberryDjangoFie
 
         return args
 
+    @staticmethod
+    def _get_selections(selected_field: SelectedField, *path) -> List[SelectedField]:
+        if not path:
+            return selected_field.selections
+        if len(path) == 1:
+            for selected_child_field in selected_field.selections:
+                if selected_child_field.name == path[0]:
+                    return selected_child_field.selections
+            return []
+        for selected_child_field in selected_field.selections:
+            if selected_child_field.name == path[0]:
+                return StrawberryDjangoConnectionField._get_selections(selected_child_field, *path[1:])
+        return []
+
     def resolve_nodes(
         self,
         source: Any,
@@ -369,7 +383,15 @@ class StrawberryDjangoConnectionField(relay.ConnectionField, StrawberryDjangoFie
         nodes: Optional[QuerySet[Any]] = None,
     ):
         if nodes is None:
-            nodes = self.model._default_manager.all()
+            # DISTINCT by default
+            # It's implemented as additional filter induced from results
+            distinguished_ids_filter = []
+            if self._has_ability_to_apply_distinct(self._get_selections(info.selected_fields[0], 'edges')):
+                distinguished_ids_filter = self._make_filter_from_selected_fields(info.schema, self._get_selections(info.selected_fields[0], 'edges', 'node'))
+            if distinguished_ids_filter:
+                nodes = self.model._default_manager.filter(distinguished_ids_filter)
+            else:
+                nodes = self.model._default_manager.all().distinct()
 
             if self.origin_django_type and hasattr(self.origin_django_type.origin, "get_queryset"):
                 nodes = cast(
