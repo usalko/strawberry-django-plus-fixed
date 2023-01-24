@@ -194,8 +194,10 @@ class StrawberryDjangoField(_StrawberryDjangoField):
             model_for_attribute = getattr(django_model, parent_attribute)
             if hasattr(model_for_attribute, 'field') and model_for_attribute.field.many_to_many:
                 return hasattr(model_for_attribute.rel.identity[1], attribute)
-            elif hasattr(model_for_attribute, 'field') and model_for_attribute.field.is_relation:
+            elif hasattr(model_for_attribute, 'field') and model_for_attribute.field.is_relation and hasattr(model_for_attribute.field, 'type'):
                 return hasattr(model_for_attribute.field.type, attribute)
+            elif hasattr(model_for_attribute, 'field') and model_for_attribute.field.is_relation and hasattr(model_for_attribute.field, 'related_model'):
+                return hasattr(model_for_attribute.field.related_model, attribute)
             return True
         return hasattr(django_model, attribute)
 
