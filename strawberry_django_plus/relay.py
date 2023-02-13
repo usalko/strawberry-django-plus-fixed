@@ -709,7 +709,7 @@ class Connection(Generic[NodeType]):
         if after:
             after_type, after_parsed = from_base64(after)
             assert after_type == connection_typename
-            start = int(after_parsed) + 1
+            start = int(after_parsed)
         if before:
             before_type, before_parsed = from_base64(before)
             assert before_type == connection_typename

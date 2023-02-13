@@ -203,6 +203,12 @@ class StrawberryDjangoField(_StrawberryDjangoField):
 
 
     def _make_filter_from_selected_fields(self, schema: Schema, selected_fields: List[SelectedField], parent: str = ''):
+        '''
+            There is the simple 'group by' model for distinct simulation (it uses max function for id).
+            The design:
+                Get all selected fields (if selected fields contain id, this function never called).
+                For each selected field add additional filter (id in max(id) for every field value)
+        '''
         #self.model._default_manager.values('lexeme__name').annotate(Max('id')).values('id__max') = None
         results = []
         for selected_field in filter(lambda selected_field: not selected_field.name.startswith('__'), selected_fields):
