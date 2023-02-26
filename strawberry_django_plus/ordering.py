@@ -1,7 +1,7 @@
 from typing import Callable, Optional, Sequence, Type, TypeVar, cast
 
-from django.db.models.base import Model
 import strawberry
+from django.db.models.base import Model
 from strawberry import UNSET
 from strawberry.field import StrawberryField
 from strawberry.utils.typing import __dataclass_transform__
@@ -28,7 +28,7 @@ _T = TypeVar("_T")
         field.connection,
     ),
 )
-def order(  # noqa:A001
+def order(
     model: Type[Model],
     *,
     name: Optional[str] = None,
@@ -38,7 +38,7 @@ def order(  # noqa:A001
     def wrapper(cls):
         for fname, type_ in cls.__annotations__.items():
             if is_auto(type_):
-                type_ = Ordering
+                type_ = Ordering  # noqa: PLW2901
 
             cls.__annotations__[fname] = Optional[type_]
             setattr(cls, fname, UNSET)

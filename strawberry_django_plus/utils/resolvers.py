@@ -1,5 +1,6 @@
 import functools
 import inspect
+import warnings
 from typing import (
     Any,
     Awaitable,
@@ -15,7 +16,6 @@ from typing import (
     cast,
     overload,
 )
-import warnings
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.db.models import Model, QuerySet
@@ -26,9 +26,10 @@ from strawberry.utils.await_maybe import AwaitableOrValue
 from strawberry_django.utils import is_async
 from typing_extensions import ParamSpec
 
-from strawberry_django_plus.relay import Connection, GlobalID, Node, NodeType
+from strawberry_django_plus import relay
+from strawberry_django_plus.relay import GlobalID, Node
 
-from .aio import is_awaitable, resolve, resolve_async
+from .aio import is_awaitable, resolve_async
 from .inspect import get_django_type
 
 _T = TypeVar("_T")
@@ -63,7 +64,7 @@ def async_safe(
 
 
 def async_safe(func=None, /, *, thread_sensitive=True):
-    """Decorates a function to be async safe, ensuring it is called in a sync context always.
+    """Decorate a function to be async safe, ensuring it is called in a sync context always.
 
     - If `f` is a coroutine function, this is a noop.
     - When running, if an asyncio loop is running, the function will
@@ -76,7 +77,8 @@ def async_safe(func=None, /, *, thread_sensitive=True):
             If the sync function should run in the same thread as all other
             thread_sensitive functions
 
-    Returns:
+    Returns
+    -------
         The wrapped function
 
     .. _asgi.sync_to_async:
@@ -96,10 +98,7 @@ def async_safe(func=None, /, *, thread_sensitive=True):
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
-            if is_async():
-                resolver = async_resolver
-            else:
-                resolver = f
+            resolver = async_resolver if is_async() else f
 
             return resolver(*args, **kwargs)
 
@@ -118,13 +117,14 @@ def async_unsafe(*args, **kwargs):
 
 @_async_to_sync
 async def resolve_sync(value: Awaitable[_T]) -> _T:
-    """Resolves the given value, resolving any returned awaitable.
+    """Resolve the given value, resolving any returned awaitable.
 
     Args:
         value:
             The awaitable to be resolved
 
-    Returns:
+    Returns
+    -------
         The resolved value.
 
     """
@@ -155,7 +155,7 @@ def resolve_qs(
     ...
 
 
-def resolve_qs(qs, *, resolver=None, info=None) -> Any:
+def resolve_qs(qs, *, resolver=None, info=None) -> Any:  # type: ignore
     """Resolve the queryset, ensuring its db operations are executed in a sync context.
 
     Args:
@@ -170,7 +170,8 @@ def resolve_qs(qs, *, resolver=None, info=None) -> Any:
             of `is_awaitable`, which might have some optimizations. Otherwise
             will fallback to `inspect.is_awaitable`
 
-    Returns:
+    Returns
+    -------
         The wrapped function
 
     .. _asgi.sync_to_async:
@@ -190,7 +191,8 @@ def resolve_qs(qs, *, resolver=None, info=None) -> Any:
     if resolver is None:
         # This is what QuerySet does internally to fetch results.
         # After this, iterating over the queryset should be async safe
-        resolver = lambda r: r._fetch_all() or r
+        def resolver(r):
+            return r._fetch_all() or r
 
     if is_async() and not (
         inspect.iscoroutinefunction(resolver) or inspect.isasyncgenfunction(resolver)
@@ -269,7 +271,8 @@ def resolve_result(res, *, info=None, qs_resolver=None):
             `resolve_qs` will be used, which by default returns the queryset
             already prefetched from the database.
 
-    Returns:
+    Returns
+    -------
         The resolved result.
 
     """
@@ -287,9 +290,11 @@ def resolve_result(res, *, info=None, qs_resolver=None):
 
         qs_resolver = qs_resolver or resolve_qs
         return qs_resolver(res)
-    elif callable(res):
+
+    if callable(res):
         return resolve_result(async_safe(res)(), info=info, qs_resolver=qs_resolver)
-    elif is_awaitable(res, info=info):
+
+    if is_awaitable(res, info=info):
         return resolve_async(
             res,
             functools.partial(resolve_result, info=info, qs_resolver=qs_resolver),
@@ -318,11 +323,13 @@ def resolve_model_nodes(
         node_ids:
             Optional filter by those node_ids instead of retrieving everything
 
-    Returns:
+    Returns
+    -------
         The resolved queryset, already prefetched from the database
 
     """
     # avoid circular import
+    from strawberry_django_plus import optimizer
     from strawberry_django_plus.permissions import filter_with_perms
 
     if issubclass(source, Model):
@@ -335,19 +342,35 @@ def resolve_model_nodes(
     qs = source._default_manager.all()
 
     if origin and hasattr(origin, "get_queryset"):
-        qs = origin.get_queryset(qs, info)  # type:ignore
+        qs = origin.get_queryset(qs, info)  # type: ignore
 
     if node_ids is not None:
         id_attr = getattr(origin, "id_attr", "pk")
         qs = qs.filter(
-            **{f"{id_attr}__in": [i.node_id if isinstance(i, GlobalID) else i for i in node_ids]}
+            **{f"{id_attr}__in": [i.node_id if isinstance(i, GlobalID) else i for i in node_ids]},
         )
 
     if filter_perms:
         assert info
         qs = filter_with_perms(qs, info)
 
-    return resolve_result(qs, info=info)
+    qs_resolver = resolve_qs
+    if info is not None:
+        ext = optimizer.optimizer.get()
+        if ext is not None:
+            # If optimizer extension is enabled, optimize this queryset
+            qs = ext.optimize(qs, info=info)
+        # Connection will filter the results when its is being resolved. We don't want to
+        # fetch everything before it does that
+        if isinstance(return_type := info.return_type, type) and issubclass(
+            return_type,
+            relay.Connection,
+        ):
+
+            def qs_resolver(qs):
+                return qs
+
+    return resolve_result(qs, info=info, qs_resolver=qs_resolver)
 
 
 @overload
@@ -389,7 +412,8 @@ def resolve_model_node(source, node_id, *, info: Optional[Info] = None, required
             used, which might raise `model.DoesNotExist` error if the node doesn't exist.
             Otherwise, `qs.first()` will be used, which might return None.
 
-    Returns:
+    Returns
+    -------
         The resolved node, already prefetched from the database
 
     """
@@ -415,7 +439,7 @@ def resolve_model_node(source, node_id, *, info: Optional[Info] = None, required
     else:
         ret = resolve_result(qs, info=info, qs_resolver=resolve_qs_get_first)
 
-    return ret
+    return ret  # noqa: RET504
 
 
 def resolve_model_id(source: Union[Type[Node], Type[_M]], root: Model) -> AwaitableOrValue[str]:
@@ -427,7 +451,8 @@ def resolve_model_id(source: Union[Type[Node], Type[_M]], root: Model) -> Awaita
         root:
             The source model object.
 
-    Returns:
+    Returns
+    -------
         The resolved object id
 
     """
@@ -443,105 +468,3 @@ def resolve_model_id(source: Union[Type[Node], Type[_M]], root: Model) -> Awaita
         return str(root.__dict__[id_attr])
     except KeyError:
         return getattr_str_async_safe(root, id_attr)
-
-
-def resolve_connection(
-    source: Union[Type[NodeType], Type[_M]],
-    *,
-    info: Optional[Info] = None,
-    nodes: Optional[AwaitableOrValue[QuerySet[_M]]] = None,
-    total_count: Optional[int] = None,
-    before: Optional[str] = None,
-    after: Optional[str] = None,
-    first: Optional[int] = None,
-    last: Optional[int] = None,
-    filter_perms: bool = False,
-) -> AwaitableOrValue[Connection[NodeType]]:
-    """Resolve model connection, ensuring those are prefetched in a sync context.
-
-    Args:
-        source:
-            The source model or the model type that implements the `Node` interface
-        info:
-            Optional gql execution info. Make sure to always provide this or
-            otherwise, the queryset cannot be optimized in case DjangoOptimizerExtension
-            is enabled. This will also be used for `is_awaitable` check.
-        nodes:
-            An iterable of already filtered queryset to use in the connection.
-            If not provided, `model.objects.all()` will be used
-        total_count:
-            Optionally provide a total count so that the connection. This will
-            avoid having to call `qs.count()` later.
-        before:
-            Returns the items in the list that come before the specified cursor
-        after:
-            Returns the items in the list that come after the specified cursor
-        first:
-            Returns the first n items from the list
-        last:
-            Returns the items in the list that come after the specified cursor
-
-    Returns:
-        The resolved connection
-
-    """
-    # avoid circular import
-    from strawberry_django_plus import optimizer
-    from strawberry_django_plus.permissions import filter_with_perms
-
-    if nodes is None:
-        if issubclass(source, Model):
-            origin = None
-        else:
-            origin = source
-            django_type = get_django_type(source, ensure_type=True)
-            source = cast(Type[_M], django_type.model)
-
-        nodes = source._default_manager.all()
-        assert isinstance(nodes, QuerySet)
-
-        if origin and hasattr(origin, "get_queryset"):
-            nodes = origin.get_queryset(nodes, info)  # type:ignore
-
-    if is_awaitable(nodes, info=info):
-        return resolve_async(
-            nodes,
-            lambda resolved: resolve_connection(
-                source,
-                info=info,
-                nodes=resolved,
-                total_count=total_count,
-                before=before,
-                after=after,
-                first=first,
-                last=last,
-                filter_perms=filter_perms,
-            ),
-        )
-
-    # FIXME: Remove cast once pyright resolves the negative TypeGuard form
-    nodes = cast(QuerySet[_M], nodes)
-
-    if filter_perms:
-        assert info
-        nodes = filter_with_perms(nodes, info)
-
-    if info is not None:
-        ext = optimizer.optimizer.get()
-        if ext is not None:
-            # If optimizer extension is enabled, optimize this queryset
-            nodes = ext.optimize(nodes, info=info)
-
-    return resolve(
-        nodes,
-        async_safe(
-            functools.partial(
-                Connection.from_nodes,
-                total_count=total_count,
-                before=before,
-                after=after,
-                first=first,
-                last=last,
-            )
-        ),
-    )

@@ -81,7 +81,7 @@ class MilestoneFilter:
 
 @gql.django.order(Project)
 class ProjectOrder:
-    id: gql.auto  # noqa:A003
+    id: gql.auto  # noqa: A003
     name: gql.auto
 
 
@@ -107,15 +107,15 @@ class MilestoneType(relay.Node):
                         Assignee.objects.filter(
                             issue=OuterRef("pk"),
                             user_id=info.context.request.user.id,
-                        )
-                    )
+                        ),
+                    ),
                 ),
                 to_attr="_my_issues",
-            )
+            ),
         ],
     )
     def my_issues(self) -> List["IssueType"]:
-        return self._my_issues  # type:ignore
+        return self._my_issues  # type: ignore
 
     @gql.django.field
     async def async_field(self, value: str) -> str:
@@ -239,7 +239,7 @@ class Query:
     tag_list: List[TagType] = gql.django.field()
 
     issue_conn: relay.Connection[
-        gql.LazyType["IssueType", "demo.schema"]  # type:ignore # noqa:F821
+        gql.LazyType["IssueType", "demo.schema"]  # type: ignore  # noqa: F821
     ] = gql.django.connection()
     milestone_conn: relay.Connection[MilestoneType] = gql.django.connection()
 
@@ -250,7 +250,7 @@ class Query:
     # Login required to resolve
     issue_login_required: IssueType = gql.django.node(directives=[IsAuthenticated()])
     issue_login_required_optional: Optional[IssueType] = gql.django.node(
-        directives=[IsAuthenticated()]
+        directives=[IsAuthenticated()],
     )
     # Staff required to resolve
     issue_staff_required: IssueType = gql.django.node(directives=[IsStaff()])
@@ -258,7 +258,7 @@ class Query:
     # Superuser required to resolve
     issue_superuser_required: IssueType = gql.django.node(directives=[IsSuperuser()])
     issue_superuser_required_optional: Optional[IssueType] = gql.django.node(
-        directives=[IsSuperuser()]
+        directives=[IsSuperuser()],
     )
     # User permission on "demo.view_issue" to resolve
     issue_perm_required: IssueType = gql.django.node(

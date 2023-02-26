@@ -4,10 +4,11 @@ import base64
 import dataclasses
 import functools
 import inspect
+import itertools
 import math
 import sys
+import uuid
 from typing import (
-    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -27,16 +28,15 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    _eval_type,  # type: ignore
     cast,
     get_args,
     get_origin,
     overload,
 )
-from typing import _eval_type  # type:ignore
-import uuid
 
-from graphql import GraphQLID
 import strawberry
+from graphql import GraphQLID
 from strawberry.annotation import StrawberryAnnotation
 from strawberry.arguments import StrawberryArgument
 from strawberry.custom_scalar import ScalarDefinition
@@ -44,12 +44,7 @@ from strawberry.field import StrawberryField
 from strawberry.lazy_type import LazyType
 from strawberry.permission import BasePermission
 from strawberry.schema.types.scalar import DEFAULT_SCALAR_REGISTRY
-from strawberry.type import (
-    StrawberryList,
-    StrawberryOptional,
-    StrawberryType,
-    StrawberryTypeVar,
-)
+from strawberry.type import StrawberryContainer, StrawberryList, StrawberryOptional
 from strawberry.types import Info
 from strawberry.types.fields.resolver import StrawberryResolver
 from strawberry.types.types import TypeDefinition
@@ -91,17 +86,19 @@ def from_base64(value: str) -> Tuple[str, str]:
         value:
             The value to be parsed
 
-    Returns:
+    Returns
+    -------
         A tuple of (TypeName, NodeID).
 
-    Raises:
+    Raises
+    ------
         ValueError:
             If the value is not in the expected format
 
     """
     try:
         res = base64.b64decode(value.encode()).decode().split(":", 1)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raise ValueError(str(e)) from e
 
     if len(res) != 2:
@@ -119,10 +116,12 @@ def to_base64(type_: Union[str, type, TypeDefinition], node_id: Any) -> str:
         node_id:
             The node id itself
 
-    Returns:
+    Returns
+    -------
         A tuple of (TypeName, NodeID).
 
-    Raises:
+    Raises
+    ------
         ValueError:
             If the value is not a valid GraphQL type or name
 
@@ -133,8 +132,8 @@ def to_base64(type_: Union[str, type, TypeDefinition], node_id: Any) -> str:
         elif isinstance(type_, TypeDefinition):
             type_name = type_.name
         elif isinstance(type_, type):
-            type_name = type_._type_definition.name  # type:ignore
-    except Exception as e:
+            type_name = type_._type_definition.name  # type: ignore
+    except Exception as e:  # noqa: BLE001
         raise ValueError(f"{type_} is not a valid GraphQL type or name") from e
 
     return base64.b64encode(f"{type_name}:{node_id}".encode()).decode()
@@ -155,7 +154,8 @@ class GlobalID:
     This object contains helpers to work with that, including method to retrieve
     the python object type or even the encoded node itself.
 
-    Attributes:
+    Attributes
+    ----------
         type_name:
             The type name part of the id
         node_id:
@@ -174,11 +174,11 @@ class GlobalID:
     def __post_init__(self):
         if not isinstance(self.type_name, str):
             raise GlobalIDValueError(
-                f"type_name is expected to be a string, found {repr(self.type_name)}"
+                f"type_name is expected to be a string, found {repr(self.type_name)}",
             )
         if not isinstance(self.node_id, str):
             raise GlobalIDValueError(
-                f"node_id is expected to be a string, found {repr(self.node_id)}"
+                f"node_id is expected to be a string, found {repr(self.node_id)}",
             )
 
     def __str__(self):
@@ -192,10 +192,12 @@ class GlobalID:
             value:
                 The value to be parsed, as a base64 string in the "TypeName:NodeID" format
 
-        Returns:
+        Returns
+        -------
             An instance of GLobalID
 
-        Raises:
+        Raises
+        ------
             GlobalIDValueError:
                 If the value is not in a GLobalID format
 
@@ -214,7 +216,8 @@ class GlobalID:
             info:
                 The strawberry execution info resolve the type name from
 
-        Returns:
+        Returns
+        -------
             The resolved GraphQL type for the execution info
 
         """
@@ -292,10 +295,12 @@ class GlobalID:
                 Optionally check if the returned node is really an instance
                 of this type.
 
-        Returns:
+        Returns
+        -------
             The resolved node
 
-        Raises:
+        Raises
+        ------
             TypeError:
                 If ensure_type was provided and the type is not an instance of it
 
@@ -322,7 +327,9 @@ DEFAULT_SCALAR_REGISTRY[GlobalID] = ScalarDefinition(
     # specs expect this type to be "ID".
     name="GlobalID",
     description=GraphQLID.description,
-    parse_literal=lambda v, vars=None: GlobalID.from_id(GraphQLID.parse_literal(v, vars)),
+    parse_literal=lambda v, vars=None: GlobalID.from_id(  # noqa: A002
+        GraphQLID.parse_literal(v, vars),
+    ),
     parse_value=GlobalID.from_id,
     serialize=str,
     specified_by_url="https://relay.dev/graphql/objectidentification.htm",
@@ -336,11 +343,13 @@ class Node(abc.ABC):
     All types that are relay ready should inherit from this interface and
     implement the following methods.
 
-    Attributes:
+    Attributes
+    ----------
         id_attr:
             (Optional) Define id field of node
 
-    Methods:
+    Methods
+    -------
         resolve_id:
             (Optional) Called to resolve the node's id.
             By default it returns `getattr(node, getattr(node, 'id_attr'. 'id'))`
@@ -355,20 +364,25 @@ class Node(abc.ABC):
 
     """
 
-    # We can't do CONNECTION_CLASS = Connection because it is not defined yet.
-    # We will define it below though as the default one.
-    if TYPE_CHECKING:
-        CONNECTION_CLASS: ClassVar[Type["Connection"]]
-
     @strawberry.field(description="The Globally Unique ID of this object")
     @classmethod
-    def id(cls, root: "Node", info: Info) -> GlobalID:  # noqa:A003
+    def id(cls, root: "Node", info: Info) -> GlobalID:  # noqa: A003
         # FIXME: We want to support both integration objects that doesn't define a resolve_id
         # and also the ones that does override it. Is there a better way of handling this?
         if isinstance(root, Node):
             resolve_id = root.__class__.resolve_id
         else:
-            resolve_id = cls.resolve_id
+            # Try to use a custom resolve_id from the type itself. If it doesn't define one,
+            # fallback to cls.resolve_id
+            try:
+                parent_type = info._raw_info.parent_type
+                type_def = info.schema.get_type_by_name(parent_type.name)
+                if not isinstance(type_def, TypeDefinition):
+                    raise TypeError  # noqa: TRY301
+
+                resolve_id = type_def.origin.resolve_id
+            except (RuntimeError, AttributeError):
+                resolve_id = cls.resolve_id
 
         node_id = resolve_id(root, info=info)
         resolve_typename = (
@@ -380,11 +394,13 @@ class Node(abc.ABC):
         if isinstance(node_id, str):
             # str is the default and is faster to check for it than is_awaitable
             return GlobalID(type_name=type_name, node_id=node_id)
-        elif isinstance(node_id, (int, uuid.UUID)):
+
+        if isinstance(node_id, (int, uuid.UUID)):
             # those are very common ids and are safe to convert to str
             return GlobalID(type_name=type_name, node_id=str(node_id))
-        elif aio.is_awaitable(node_id, info=info):
-            return aio.resolve_async(  # type:ignore
+
+        if aio.is_awaitable(node_id, info=info):
+            return aio.resolve_async(  # type: ignore
                 node_id,
                 lambda resolved: GlobalID(type_name=type_name, node_id=resolved),
                 info=info,
@@ -411,7 +427,8 @@ class Node(abc.ABC):
             root:
                 The node to resolve
 
-        Returns:
+        Returns
+        -------
             The resolved id (which is expected to be str)
 
         """
@@ -421,75 +438,6 @@ class Node(abc.ABC):
     @classmethod
     def resolve_typename(cls: Type[NodeType], root: NodeType, info: Info):
         return info.path.typename
-
-    @classmethod
-    def resolve_connection(
-        cls: Type[NodeType],
-        *,
-        info: Optional[Info] = None,
-        nodes: Optional[AwaitableOrValue[Iterable[NodeType]]] = None,
-        total_count: Optional[int] = None,
-        before: Optional[str] = None,
-        after: Optional[str] = None,
-        first: Optional[int] = None,
-        last: Optional[int] = None,
-    ) -> AwaitableOrValue["Connection[NodeType]"]:
-        """Resolve a connection for this node.
-
-        By default this will call `cls.resolve_nodes` if None were provided,
-        and them the connection will be generated from `Connection.from_nodes`.
-
-        Args:
-            info:
-                The strawberry execution info resolve the type name from
-            nodes:
-                An iterable of nodes to transform to a connection
-            total_count:
-                Optionally provide a total count so that the connection
-                doesn't have to calculate it. Might be useful for some ORMs
-                for performance reasons.
-            before:
-                Returns the items in the list that come before the specified cursor
-            after:
-                Returns the items in the list that come after the specified cursor
-            first:
-                Returns the first n items from the list
-            last:
-                Returns the items in the list that come after the specified cursor
-
-        Returns:
-            The resolved `Connection`
-
-        """
-        if nodes is None:
-            nodes = cls.resolve_nodes(info=info)
-
-        if aio.is_awaitable(nodes, info=info):
-            return aio.resolve_async(
-                nodes,
-                lambda resolved: cls.resolve_connection(
-                    info=info,
-                    nodes=resolved,
-                    total_count=total_count,
-                    before=before,
-                    after=after,
-                    first=first,
-                    last=last,
-                ),
-                info=info,
-            )
-
-        # FIXME: Remove cast once pyright resolves the negative TypeGuard form
-        nodes = cast(Iterable[NodeType], nodes)
-
-        return cls.CONNECTION_CLASS.from_nodes(
-            nodes,
-            total_count=total_count,
-            before=before,
-            after=after,
-            first=first,
-            last=last,
-        )
 
     @classmethod
     @abc.abstractmethod
@@ -511,7 +459,8 @@ class Node(abc.ABC):
                 the results to only contain the nodes of those ids. When empty,
                 all nodes of this type shall be returned.
 
-        Returns:
+        Returns
+        -------
             An iterable of resolved nodes.
 
         """
@@ -563,7 +512,8 @@ class Node(abc.ABC):
                 if the node is required or not to exist. If not, then None should
                 be returned if it doesn't exist. Otherwise an exception should be raised.
 
-        Returns:
+        Returns
+        -------
             The resolved node or None if it was not found
 
         """
@@ -574,7 +524,8 @@ class Node(abc.ABC):
 class PageInfo:
     """Information to aid in pagination.
 
-    Attributes:
+    Attributes
+    ----------
         has_next_page:
             When paginating forwards, are there more items?
         has_previous_page:
@@ -604,7 +555,8 @@ class PageInfo:
 class Edge(Generic[NodeType]):
     """An edge in a connection.
 
-    Attributes:
+    Attributes
+    ----------
         cursor:
             A cursor for use in pagination
         node:
@@ -628,7 +580,8 @@ class Edge(Generic[NodeType]):
 class Connection(Generic[NodeType]):
     """A connection to a list of items.
 
-    Attributes:
+    Attributes
+    ----------
         page_info:
             Pagination data for this connection
         edges:
@@ -637,8 +590,6 @@ class Connection(Generic[NodeType]):
             Total quantity of existing nodes
 
     """
-
-    EDGE_CLASS: ClassVar[Type["Edge"]] = Edge
 
     page_info: PageInfo = strawberry.field(
         description="Pagination data for this connection",
@@ -654,13 +605,15 @@ class Connection(Generic[NodeType]):
     @classmethod
     def from_nodes(
         cls,
-        nodes: Iterable[Any],
+        nodes: Iterable[NodeType],
         *,
+        info: Optional[Info] = None,
         total_count: Optional[int] = None,
         before: Optional[str] = None,
         after: Optional[str] = None,
         first: Optional[int] = None,
         last: Optional[int] = None,
+        **kwargs,
     ):
         """Resolve a connection from the list of nodes.
 
@@ -684,7 +637,8 @@ class Connection(Generic[NodeType]):
             last:
                 Returns the items in the list that come after the specified cursor
 
-        Returns:
+        Returns
+        -------
             The resolved `Connection`
 
         .. _Relay Pagination algorithm:
@@ -694,7 +648,7 @@ class Connection(Generic[NodeType]):
         if total_count is None:
             # Support ORMs that define .count() (e.g. django)
             try:
-                total_count = int(nodes.count())  # type:ignore
+                total_count = int(nodes.count())  # type: ignore
             except (AttributeError, ValueError, TypeError):
                 if isinstance(nodes, Sized):
                     total_count = len(nodes)
@@ -715,9 +669,6 @@ class Connection(Generic[NodeType]):
             assert before_type == connection_typename
             end = int(before_parsed)
 
-        if end is None:
-            end = max_results
-
         if isinstance(first, int):
             if first < 0:
                 raise ValueError("Argument 'first' must be a non-negative integer.")
@@ -734,15 +685,25 @@ class Connection(Generic[NodeType]):
                 raise ValueError(f"Argument 'last' cannot be higher than {max_results}.")
 
             if end == math.inf:
-                raise ValueError("Cannot use last with unlimited results")
+                # This is the worst case, someone is asking for last without specifying an
+                # after argument. We basically want the total_count - last in here. If we don't
+                # have the total_count (e.g. because nodes is a generator), the slice below
+                # will have to iterate over it all, so we can transform it to a list here to
+                # retrieve that total_count right now
+                if total_count is None:
+                    nodes = list(nodes)
+                    total_count = len(nodes)
 
-            start = max(start, end - last)
+                start = max(start, total_count - last)
+                end = None
+            else:
+                start = max(start, end - last)
 
         # If at this point end is still inf, consider it to be start + max_results
         if end == math.inf:
             end = start + max_results
 
-        expected = end - start
+        expected = end - start if end is not None else abs(start)
         # If no parameters are given, end could be total_results at this point.
         # Make sure we don't exceed max_results in here
         if expected > max_results:
@@ -750,10 +711,25 @@ class Connection(Generic[NodeType]):
             expected = end - start
 
         # Overfetch by 1 to check if we have a next result
-        edges = [
-            cls.EDGE_CLASS.from_node(v, cursor=start + i)
-            for i, v in enumerate(cast(Sequence, nodes)[start : end + 1])  # noqa:E203
-        ]
+        type_def = cast(TypeDefinition, cls._type_definition)  # type: ignore
+        field_def = type_def.get_field("edges")
+        assert field_def
+
+        field = field_def.type
+        while isinstance(field, StrawberryContainer):
+            field = field.of_type
+
+        edge_class = cast(Edge[NodeType], field)
+        iterator = (
+            cast(Sequence, nodes)[start : end + 1 if end is not None else None]
+            if hasattr(nodes, "__getitem__")
+            else itertools.islice(
+                nodes,
+                cast(int, start),
+                cast(int, end + 1) if end is not None else None,
+            )
+        )
+        edges = [edge_class.from_node(v, cursor=start + i) for i, v in enumerate(iterator)]
 
         # Remove the overfetched result
         if len(edges) == expected + 1:
@@ -774,9 +750,6 @@ class Connection(Generic[NodeType]):
             page_info=page_info,
             total_count=total_count,
         )
-
-
-Node.CONNECTION_CLASS = Connection
 
 
 class RelayField(StrawberryField):
@@ -839,15 +812,15 @@ class NodeField(RelayField):
                     description="The IDs of the objects.",
                 ),
             }
-        else:
-            return {
-                "id": StrawberryArgument(
-                    python_name="id",
-                    graphql_name=None,
-                    type_annotation=StrawberryAnnotation(GlobalID),
-                    description="The ID of the object.",
-                ),
-            }
+
+        return {
+            "id": StrawberryArgument(
+                python_name="id",
+                graphql_name=None,
+                type_annotation=StrawberryAnnotation(GlobalID),
+                description="The ID of the object.",
+            ),
+        }
 
     def __call__(self, resolver):
         raise TypeError("NodeField cannot have a resolver, use a common field instead.")
@@ -861,8 +834,8 @@ class NodeField(RelayField):
     ) -> AwaitableOrValue[Any]:
         if self.is_list:
             return self.resolve_nodes(source, info, args, kwargs)
-        else:
-            return self.resolve_node(source, info, args, kwargs)
+
+        return self.resolve_node(source, info, args, kwargs)
 
     def resolve_node(
         self,
@@ -940,49 +913,35 @@ class ConnectionField(RelayField):
     }
 
     def __call__(self, resolver: Callable[..., Iterable[Node]]):
-        namespace = sys.modules[resolver.__module__].__dict__
-        nodes_type = resolver.__annotations__.get("return")
-        if not nodes_type:
-            raise TypeError("Connection nodes resolver needs a return type decoration.")
+        if (nodes_type := resolver.__annotations__.get("return")) is not None:
+            namespace = sys.modules[resolver.__module__].__dict__
+            if isinstance(nodes_type, str):
+                nodes_type = ForwardRef(nodes_type, is_argument=False)
 
-        if isinstance(nodes_type, str):
-            nodes_type = ForwardRef(nodes_type, is_argument=False)
-        resolved = _eval_type(nodes_type, namespace, None)
-        origin = get_origin(resolved)
-        if not origin or (not isinstance(origin, type) and not issubclass(origin, Iterable)):
-            raise TypeError(
-                "Connection nodes resolver needs a decoration that is a subclass of Iterable, "
-                "like `Iterable[<NodeType>]`, `List[<NodeType>]`, etc"
-            )
+            resolved = _eval_type(nodes_type, namespace, None)
+            origin = get_origin(resolved)
 
-        ntype = get_args(resolved)[0]
-        if isinstance(ntype, LazyType):
-            ntype = ntype.resolve_type()
+            is_connection = origin and isinstance(origin, type) and issubclass(origin, Connection)
+            is_iterable = origin and isinstance(origin, type) and issubclass(origin, Iterable)
+            if not is_connection and not is_iterable:
+                raise TypeError(
+                    (
+                        "Connection nodes resolver needs to return either a `Connection[<NodeType]`"
+                        " or an Iterable like `Iterable[<NodeType>]`, `List[<NodeType>]`, etc"
+                    ),
+                )
 
-        type_override = StrawberryAnnotation(
-            ntype.CONNECTION_CLASS[ntype],
-            namespace=namespace,
-        ).resolve()
+            if is_iterable and not is_connection and self.type_annotation is None:
+                ntype = get_args(resolved)[0]
+                if isinstance(ntype, LazyType):
+                    ntype = ntype.resolve_type()
 
-        resolver = StrawberryResolver(resolver, type_override=type_override)
+                self.type_annotation = StrawberryAnnotation(
+                    Connection[ntype],
+                    namespace=namespace,
+                )
+
         return super().__call__(resolver)
-
-    @property
-    def type(self) -> Union[StrawberryType, type]:  # noqa:A003
-        # Strawberry 0.139+ resolves the field annotation first, but we need to use the resolver's
-        # type here because it gets modified by us in the __call__ method
-        if (
-            self.base_resolver is not None
-            and self.base_resolver.type is not None
-            and not isinstance(self.base_resolver.type, StrawberryTypeVar)
-        ):
-            return self.base_resolver.type
-
-        return super().type
-
-    @type.setter
-    def type(self, type_: Any) -> None:  # noqa:A003
-        super(ConnectionField, self.__class__).type.fset(self, type_)  # type:ignore
 
     @functools.cached_property
     def resolver_args(self) -> Set[str]:
@@ -1002,7 +961,7 @@ class ConnectionField(RelayField):
         args: List[Any],
         kwargs: Dict[str, Any],
     ) -> AwaitableOrValue[Any]:
-        type_def = info.return_type._type_definition  # type:ignore
+        type_def = info.return_type._type_definition  # type: ignore
         assert isinstance(type_def, TypeDefinition)
 
         field_type = type_def.type_var_map[NodeType]
@@ -1025,22 +984,57 @@ class ConnectionField(RelayField):
         else:
             nodes = None
 
-        nodes = self.resolve_nodes(source, info, args, kwargs, nodes=nodes)
-        # This will be passed to the field cconnection resolver
-        kwargs = {k: v for k, v in kwargs.items() if k in self.default_args}
+        return self.resolver(source, info, args, kwargs, nodes=nodes)
 
-        return cast(Node, field_type).resolve_connection(info=info, nodes=nodes, **kwargs)
-
-    def resolve_nodes(
+    def resolver(
         self,
         source: Any,
         info: Info,
         args: List[Any],
         kwargs: Dict[str, Any],
         *,
-        nodes: Optional[Iterable[Node]] = None,
-    ) -> Optional[AwaitableOrValue[Iterable[Node]]]:
-        return nodes
+        nodes: AwaitableOrValue[Optional[Union[Iterable[Node], Connection[Node]]]] = None,
+    ):
+        # The base_resolver might have resolved to a Connection directly
+        if isinstance(nodes, Connection):
+            return nodes
+
+        return_type = cast(Connection[Node], info.return_type)
+        type_def = return_type._type_definition  # type: ignore
+        assert isinstance(type_def, TypeDefinition)
+
+        field_type = type_def.type_var_map[NodeType]
+        if isinstance(field_type, LazyType):
+            field_type = field_type.resolve_type()
+
+        if nodes is None:
+            nodes = cast(Node, field_type).resolve_nodes(info=info)
+
+        if aio.is_awaitable(nodes, info=info):
+            return aio.resolve_async(
+                nodes,
+                lambda resolved: self.resolver(
+                    source,
+                    info,
+                    args,
+                    kwargs,
+                    nodes=resolved,
+                ),
+                info=info,
+            )
+
+        # Avoid info being passed twice in case the custom resolver has one
+        kwargs.pop("info", None)
+        return self.resolve_connection(cast(Iterable[Node], nodes), info, **kwargs)
+
+    def resolve_connection(
+        self,
+        nodes: Iterable[Node],
+        info: Info,
+        **kwargs,
+    ):
+        return_type = cast(Connection[Node], info.return_type)
+        return return_type.from_nodes(nodes, **kwargs)
 
 
 class InputMutationField(RelayField):
@@ -1137,7 +1131,8 @@ def node(
 ) -> Any:
     """Annotate a property to create a relay query field.
 
-    Examples:
+    Examples
+    --------
         Annotating something like this:
 
         >>> @strawberry.type
@@ -1185,6 +1180,7 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
 ) -> _T:
     ...
 
@@ -1202,6 +1198,7 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
 ) -> Any:
     ...
 
@@ -1219,6 +1216,7 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
 ) -> ConnectionField:
     ...
 
@@ -1235,6 +1233,7 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     # This init parameter is used by pyright to determine whether this field
     # is added in the constructor or not. It is not used to change
     # any behavior at the moment.
@@ -1252,7 +1251,8 @@ def connection(
     case for this is to provide a filtered iterable of nodes by using some custom
     filter arguments.
 
-    Examples:
+    Examples
+    --------
         Annotating something like this:
 
         >>> @strawberry.type
@@ -1293,8 +1293,8 @@ def connection(
     f = ConnectionField(
         python_name=None,
         graphql_name=name,
-        type_annotation=None,
         description=description,
+        type_annotation=StrawberryAnnotation.from_annotation(graphql_type),
         is_subscription=is_subscription,
         permission_classes=permission_classes or [],
         deprecation_reason=deprecation_reason,
@@ -1303,8 +1303,10 @@ def connection(
         metadata=metadata,
         directives=directives or (),
     )
+
     if resolver is not None:
-        f = f(resolver)
+        return f(resolver)
+
     return f
 
 
@@ -1384,7 +1386,8 @@ def input_mutation(
     named using the mutation name, capitalizing the first letter and append "Input"
     at the end. e.g. `doSomeMutation` will generate an input type `DoSomeMutationInput`.
 
-    Examples:
+    Examples
+    --------
         Annotating something like this:
 
         >>> @strawberry.type
@@ -1426,6 +1429,8 @@ def input_mutation(
         metadata=metadata,
         directives=directives or (),
     )
+
     if resolver is not None:
-        f = f(resolver)
+        return f(resolver)
+
     return f
