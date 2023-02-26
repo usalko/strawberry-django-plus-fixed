@@ -20,7 +20,7 @@ from typing import (
 
 import strawberry
 from django.db import models
-from django.db.models import QuerySet, Max, Q
+from django.db.models import QuerySet
 from django.db.models.fields.related_descriptors import (
     ForwardManyToOneDescriptor,
     ReverseManyToOneDescriptor,
@@ -36,13 +36,10 @@ from strawberry.type import StrawberryContainer, StrawberryType
 from strawberry.types.fields.resolver import StrawberryResolver
 from strawberry.types.info import Info
 from strawberry.types.types import TypeDefinition
-from strawberry.types.nodes import SelectedField
 from strawberry.union import StrawberryUnion
-from strawberry.schema.schema import Schema
 from strawberry_django.arguments import argument
 from strawberry_django.fields.field import StrawberryDjangoField as _StrawberryDjangoField
 from strawberry_django.utils import get_django_model, unwrap_type
-from re import sub
 
 from . import relay
 from .descriptors import ModelProperty
@@ -180,50 +177,6 @@ class StrawberryDjangoField(_StrawberryDjangoField):
 
         return resolver
 
-    def camelBack_to_underscores(self, text: str):
-        return sub(r'[A-Z]', lambda x: '_' + x.group(0).lower(), text)
-
-    @staticmethod
-    def _is_valid_django_model_attributes_path(django_model: models.Model, parent_attribute: str, attribute: str) -> bool:
-        if parent_attribute and hasattr(django_model, parent_attribute):
-            model_for_attribute = getattr(django_model, parent_attribute)
-            if hasattr(model_for_attribute, 'field') and model_for_attribute.field.many_to_many:
-                return hasattr(model_for_attribute.rel.identity[1], attribute)
-            elif hasattr(model_for_attribute, 'field') and model_for_attribute.field.is_relation and hasattr(model_for_attribute.field, 'type'):
-                return hasattr(model_for_attribute.field.type, attribute)
-            elif hasattr(model_for_attribute, 'field') and model_for_attribute.field.is_relation and hasattr(model_for_attribute.field, 'related_model'):
-                return hasattr(model_for_attribute.field.related_model, attribute)
-            return True
-        return hasattr(django_model, attribute)
-
-
-    def _make_filter_from_selected_fields(self, schema: Schema, selected_fields: List[SelectedField], parent: str = ''):
-        '''
-            There is the simple 'group by' model for distinct simulation (it uses max function for id).
-            The design:
-                Get all selected fields (if selected fields contain id, this function never called).
-                For each selected field add additional filter (id in max(id) for every field value)
-        '''
-        #self.model._default_manager.values('lexeme__name').annotate(Max('id')).values('id__max') = None
-        results = []
-        for selected_field in filter(lambda selected_field: not selected_field.name.startswith('__'), selected_fields):
-            django_field_name = f'{parent}__{self.camelBack_to_underscores(selected_field.name)}' if parent else self.camelBack_to_underscores(selected_field.name)
-            if selected_field.selections and hasattr(self.model, django_field_name) and getattr(self.model, django_field_name).field.is_relation:
-                results.append(self._make_filter_from_selected_fields(schema, selected_field.selections, django_field_name))
-            elif self._is_valid_django_model_attributes_path(self.model, parent, selected_field.name):
-                results.append(Q(id__in=self.model._default_manager.values(django_field_name).annotate(Max('id')).values('id__max')))
-        if len(results) == 0:
-            return [] # All fields are calculated in graphql schema
-        if len(results) == 1:
-            return results[0]
-        result = results[0]
-        for i in range(1, len(results)):
-            result = result | results[i]
-        return result
-
-    def _has_ability_to_apply_distinct(self, selected_fields: List[SelectedField]):
-        return selected_fields and not any(any(field.name == 'id' for field in selected_field.selections) for selected_field in selected_fields)
-
     def get_result(
         self,
         source: Optional[models.Model],
@@ -237,8 +190,8 @@ class StrawberryDjangoField(_StrawberryDjangoField):
             # DISTINCT by default
             # It's implemented as additional filter induced from results
             distinguished_ids_filter = []
-            if self._has_ability_to_apply_distinct(info.selected_fields):
-                distinguished_ids_filter = self._make_filter_from_selected_fields(info.schema, info.selected_fields[0].selections)
+            if resolvers._has_ability_to_apply_distinct(info.selected_fields):
+                distinguished_ids_filter = resolvers._make_filter_from_selected_fields(info.schema, info.selected_fields[0].selections, self.model)
             if distinguished_ids_filter:
                 result = self.model._default_manager.filter(distinguished_ids_filter)
             else:
@@ -367,45 +320,6 @@ class StrawberryDjangoConnectionField(relay.ConnectionField, StrawberryDjangoFie
             args.append(argument("filters", filters))
 
         return args
-
-    @staticmethod
-    def _get_selections(selected_field: SelectedField, *path) -> List[SelectedField]:
-        if not path:
-            return selected_field.selections
-        if len(path) == 1:
-            for selected_child_field in selected_field.selections:
-                if selected_child_field.name == path[0]:
-                    return selected_child_field.selections
-            return []
-        for selected_child_field in selected_field.selections:
-            if selected_child_field.name == path[0]:
-                return StrawberryDjangoConnectionField._get_selections(selected_child_field, *path[1:])
-        return []
-
-    def resolve_nodes(
-        self,
-        nodes: QuerySet,
-        info: Info,
-        **kwargs,
-    ):
-        if nodes is None:
-            # DISTINCT by default
-            # It's implemented as additional filter induced from results
-            distinguished_ids_filter = []
-            if self._has_ability_to_apply_distinct(self._get_selections(info.selected_fields[0], 'edges')):
-                distinguished_ids_filter = self._make_filter_from_selected_fields(info.schema, self._get_selections(info.selected_fields[0], 'edges', 'node'))
-            if distinguished_ids_filter:
-                nodes = self.model._default_manager.filter(distinguished_ids_filter)
-            else:
-                nodes = self.model._default_manager.all().distinct()
-
-            if self.origin_django_type and hasattr(self.origin_django_type.origin, "get_queryset"):
-                nodes = cast(
-                    QuerySet[Any],
-                    self.origin_django_type.origin.get_queryset(nodes, info),
-                )
-
-        return self.get_queryset_as_list(nodes, info, kwargs, skip_fetch=True)
 
     @resolvers.async_safe
     def resolve_connection(
