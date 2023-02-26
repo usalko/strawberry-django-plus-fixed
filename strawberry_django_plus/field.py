@@ -41,6 +41,8 @@ from strawberry_django.arguments import argument
 from strawberry_django.fields.field import StrawberryDjangoField as _StrawberryDjangoField
 from strawberry_django.utils import get_django_model, unwrap_type
 
+from strawberry_django_plus.strawberry_django_field_groups import StrawberryDjangoFieldGroups
+
 from . import relay
 from .descriptors import ModelProperty
 from .optimizer import OptimizerStore, PrefetchType
@@ -61,7 +63,7 @@ _T = TypeVar("_T")
 _M = TypeVar("_M", bound=models.Model)
 
 
-class StrawberryDjangoField(_StrawberryDjangoField):
+class StrawberryDjangoField(_StrawberryDjangoField, StrawberryDjangoFieldGroups):
     """A strawberry field for django attributes.
 
     Do not instantiate this directly. Instead, use `@field` decorator.
@@ -353,6 +355,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -379,6 +382,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -405,6 +409,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -430,6 +435,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -561,6 +567,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -585,6 +592,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -609,6 +617,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -632,6 +641,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
+    groups: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
