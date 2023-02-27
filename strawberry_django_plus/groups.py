@@ -12,6 +12,7 @@ from strawberry_django_plus.utils.typing import is_auto
 
 from . import field
 from .relay import connection, node
+from .strawberry_django_field_groups import Groups
 
 _T = TypeVar("_T")
 
@@ -37,7 +38,7 @@ def groups(
     def wrapper(cls):
         for fname, type_ in cls.__annotations__.items():
             if is_auto(type_):
-                type_ = bool  # noqa: PLW2901
+                type_ = Groups  # noqa: PLW2901
 
             cls.__annotations__[fname] = Optional[type_]
             setattr(cls, fname, UNSET)

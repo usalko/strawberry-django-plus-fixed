@@ -1,7 +1,9 @@
+from enum import Enum
 from typing import List, Optional, Type
 
 import strawberry
 from django.db.models import QuerySet
+from django.db.models.aggregates import Count
 from strawberry import UNSET
 from strawberry.arguments import StrawberryArgument
 from strawberry.auto import StrawberryAuto
@@ -9,6 +11,13 @@ from strawberry.types import Info
 from strawberry.utils.typing import __dataclass_transform__
 from strawberry_django.arguments import argument
 from strawberry_django.utils import fields, is_django_type, unwrap_type
+
+from .group_concat import GroupConcat
+
+
+@strawberry.enum
+class Groups(Enum):
+    ARRAY = "array"
 
 
 def generate_groups_args(groups, prefix=""):
@@ -29,7 +38,7 @@ def groups(model):
     def wrapper(cls):
         for name, type_ in cls.__annotations__.items():
             if isinstance(type_, StrawberryAuto):
-                type_ = bool
+                type_ = Groups
             cls.__annotations__[name] = Optional[type_]
             setattr(cls, name, UNSET)
         return strawberry.input(cls)
@@ -43,7 +52,20 @@ def apply(groups, queryset: QuerySet) -> QuerySet:
     args = generate_groups_args(groups)
     if not args:
         return queryset
-    return queryset.groups_by(*args)
+    '''
+    LogModel.objects.values('level', 'info').annotate(
+    count=Count(1), time=GroupConcat('time', ordering='time DESC', separator=' | ')
+).order_by('-time', '-count')
+    '''
+    result = queryset
+    # TODO: implement algo:
+    #  - For all selected fields (map to the values)
+    #  - For all aggregated fields (aka groups) do GroupConcat for map to array
+    # for arg in args:
+    # result = result.values('emoticon', 'message__id')
+    # result = result.annotate(count=Count(1),
+    #                          peer__user__first_name=GroupConcat('peer__user__first_name'))
+    return result
 
 
 class StrawberryDjangoFieldGroups:
