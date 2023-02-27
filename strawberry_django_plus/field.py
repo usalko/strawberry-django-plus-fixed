@@ -41,7 +41,7 @@ from strawberry_django.arguments import argument
 from strawberry_django.fields.field import StrawberryDjangoField as _StrawberryDjangoField
 from strawberry_django.utils import get_django_model, unwrap_type
 
-from strawberry_django_plus.strawberry_django_field_groups import StrawberryDjangoFieldGroups
+from .strawberry_django_field_aggregations import StrawberryDjangoFieldAggregations
 
 from . import relay
 from .descriptors import ModelProperty
@@ -63,7 +63,7 @@ _T = TypeVar("_T")
 _M = TypeVar("_M", bound=models.Model)
 
 
-class StrawberryDjangoField(StrawberryDjangoFieldGroups, _StrawberryDjangoField):
+class StrawberryDjangoField(StrawberryDjangoFieldAggregations, _StrawberryDjangoField):
     """A strawberry field for django attributes.
 
     Do not instantiate this directly. Instead, use `@field` decorator.
@@ -320,8 +320,8 @@ class StrawberryDjangoConnectionField(relay.ConnectionField, StrawberryDjangoFie
             args.append(argument("order", order))
         if "filters" not in args_names and (filters := self.get_filters()) not in (None, UNSET):
             args.append(argument("filters", filters))
-        if "groups" not in args_names and (groups := self.get_groups()) not in (None, UNSET):
-            args.append(argument("groups", groups))
+        if "aggregations" not in args_names and (aggregations := self.get_aggregations()) not in (None, UNSET):
+            args.append(argument("aggregations", aggregations))
 
         return args
 
@@ -357,7 +357,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -384,7 +384,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -411,7 +411,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -437,7 +437,7 @@ def field(
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -478,7 +478,7 @@ def field(
         filters=filters,
         pagination=pagination,
         order=order,
-        groups=groups,
+        aggregations=aggregations,
         only=only,
         select_related=select_related,
         prefetch_related=prefetch_related,
@@ -570,7 +570,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -595,7 +595,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -620,7 +620,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -644,7 +644,7 @@ def connection(
     graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -719,7 +719,7 @@ def connection(
         directives=directives or (),
         filters=filters,
         order=order,
-        groups=groups,
+        aggregations=aggregations,
         only=only,
         select_related=select_related,
         prefetch_related=prefetch_related,

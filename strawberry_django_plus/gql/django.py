@@ -20,7 +20,7 @@ from strawberry_django_plus.mutations.fields import delete as delete_mutation
 from strawberry_django_plus.mutations.fields import input_mutation, mutation
 from strawberry_django_plus.mutations.fields import update as update_mutation
 from strawberry_django_plus.ordering import order
-from strawberry_django_plus.groups import groups
+from strawberry_django_plus.aggregations import aggregations
 from strawberry_django_plus.type import input, interface, partial, type
 
 __all__ = [
@@ -53,5 +53,5 @@ __all__ = [
     "partial",
     "filter",
     "order",
-    "groups",
+    "aggregations",
 ]

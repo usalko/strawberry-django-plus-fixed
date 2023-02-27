@@ -144,7 +144,7 @@ def _from_django_type(
             type_annotation=type_annotation,
             filters=getattr(attr, "filters", UNSET),
             order=getattr(attr, "order", UNSET),
-            groups=getattr(attr, "groups", UNSET),
+            aggregations=getattr(attr, "aggregations", UNSET),
             only=store and store.only,
             select_related=store and store.select_related,
             prefetch_related=store and store.prefetch_related,
@@ -269,7 +269,7 @@ def _process_type(
     field_cls: Type[StrawberryDjangoField] = StrawberryDjangoField,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     pagination: Optional[bool] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
@@ -296,7 +296,7 @@ def _process_type(
         is_filter=is_filter,
         filters=filters,
         order=order,
-        groups=groups,
+        aggregations=aggregations,
         pagination=pagination,
         disable_optimization=disable_optimization,
         store=OptimizerStore.with_hints(
@@ -359,7 +359,7 @@ class StrawberryDjangoType(_StraberryDjangoType[_O, _M]):
     is_filter: Union[Literal["lookups"], bool]
     order: Optional[Union[type, UnsetType]]
     filters: Optional[Union[type, UnsetType]]
-    groups: Optional[Union[type, UnsetType]]
+    aggregations: Optional[Union[type, UnsetType]]
     pagination: Optional[Union[bool, UnsetType]]
     disable_optimization: bool
     store: OptimizerStore
@@ -391,7 +391,7 @@ def type(  # noqa: A001
     filters: Optional[type] = UNSET,
     pagination: Optional[bool] = UNSET,
     order: Optional[type] = UNSET,
-    groups: Optional[type] = UNSET,
+    aggregations: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
@@ -425,7 +425,7 @@ def type(  # noqa: A001
             filters=filters,
             pagination=pagination,
             order=order,
-            groups=groups,
+            aggregations=aggregations,
             only=only,
             select_related=select_related,
             prefetch_related=prefetch_related,

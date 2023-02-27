@@ -16,29 +16,29 @@ from .group_concat import GroupConcat
 
 
 @strawberry.enum
-class Groups(Enum):
+class Aggregations(Enum):
     ARRAY = "array"
 
 
-def generate_groups_args(groups, prefix=""):
+def generate_aggregations_args(aggregations, prefix=""):
     args = []
-    for field in fields(groups):
-        _groups = getattr(groups, field.name, UNSET)
-        if _groups is UNSET:
+    for field in fields(aggregations):
+        _aggregations = getattr(aggregations, field.name, UNSET)
+        if _aggregations is UNSET:
             continue
-        if _groups:
+        if _aggregations:
             args.append(f"{prefix}{field.name}")
         else:
-            subargs = generate_groups_args(_groups, prefix=f"{prefix}{field.name}__")
+            subargs = generate_aggregations_args(_aggregations, prefix=f"{prefix}{field.name}__")
             args.extend(subargs)
     return args
 
 
-def groups(model):
+def aggregations(model):
     def wrapper(cls):
         for name, type_ in cls.__annotations__.items():
             if isinstance(type_, StrawberryAuto):
-                type_ = Groups
+                type_ = Aggregations
             cls.__annotations__[name] = Optional[type_]
             setattr(cls, name, UNSET)
         return strawberry.input(cls)
@@ -46,10 +46,10 @@ def groups(model):
     return wrapper
 
 
-def apply(groups, queryset: QuerySet) -> QuerySet:
-    if groups is UNSET or groups is None:
+def apply(aggregations, queryset: QuerySet) -> QuerySet:
+    if aggregations is UNSET or aggregations is None:
         return queryset
-    args = generate_groups_args(groups)
+    args = generate_aggregations_args(aggregations)
     if not args:
         return queryset
     '''
@@ -60,7 +60,7 @@ def apply(groups, queryset: QuerySet) -> QuerySet:
     result = queryset
     # TODO: implement algo:
     #  - For all selected fields (map to the values)
-    #  - For all aggregated fields (aka groups) do GroupConcat for map to array
+    #  - For all aggregated fields (aka aggregations) do GroupConcat for map to array
     # for arg in args:
     # result = result.values('emoticon', 'message__id')
     # result = result.annotate(count=Count(1),
@@ -68,37 +68,37 @@ def apply(groups, queryset: QuerySet) -> QuerySet:
     return result
 
 
-class StrawberryDjangoFieldGroups:
+class StrawberryDjangoFieldAggregations:
 
-    def __init__(self, groups=UNSET, **kwargs):
-        self.groups = groups
+    def __init__(self, aggregations=UNSET, **kwargs):
+        self.aggregations = aggregations
         super().__init__(**kwargs)
 
     @property
     def arguments(self) -> List[StrawberryArgument]:
         arguments = []
         if not self.base_resolver:
-            groups = self.get_groups()
-            if groups and groups is not UNSET and self.is_list:
-                arguments.append(argument("groups", groups))
+            aggregations = self.get_aggregations()
+            if aggregations and aggregations is not UNSET and self.is_list:
+                arguments.append(argument("aggregations", aggregations))
         return super().arguments + arguments
 
-    def get_groups(self) -> Optional[Type]:
-        if self.groups is not UNSET:
-            return self.groups
+    def get_aggregations(self) -> Optional[Type]:
+        if self.aggregations is not UNSET:
+            return self.aggregations
         type_ = unwrap_type(self.type or self.child.type)
 
         if is_django_type(type_):
-            return type_._django_type.groups
+            return type_._django_type.aggregations
         return None
 
-    def apply_groups(self, queryset: QuerySet, groups) -> QuerySet:
-        return apply(groups, queryset)
+    def apply_aggregations(self, queryset: QuerySet, info, aggregations) -> QuerySet:
+        return apply(aggregations, queryset)
 
     def get_queryset(
-        self, queryset: QuerySet, info: Info, groups: Type = UNSET, **kwargs
+        self, queryset: QuerySet, info: Info, aggregations: Type = UNSET, **kwargs
     ):
         queryset = super().get_queryset(queryset, info, **kwargs)
-        return self.apply_groups(queryset, groups)
+        return self.apply_aggregations(queryset, info, aggregations)
 
 
