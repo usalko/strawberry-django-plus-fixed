@@ -4,16 +4,11 @@ import strawberry
 from django.db.models import QuerySet
 from strawberry import UNSET
 from strawberry.arguments import StrawberryArgument
+from strawberry.auto import StrawberryAuto
 from strawberry.types import Info
 from strawberry.utils.typing import __dataclass_transform__
 from strawberry_django.arguments import argument
-from strawberry_django.fields.field import field as _field
-from strawberry_django.utils import fields
-
-from strawberry_django_plus.utils.typing import is_auto
-
-from . import field, utils
-from .relay import connection, node
+from strawberry_django.utils import fields, is_django_type, unwrap_type
 
 
 def generate_groups_args(groups, prefix=""):
@@ -22,21 +17,19 @@ def generate_groups_args(groups, prefix=""):
         _groups = getattr(groups, field.name, UNSET)
         if _groups is UNSET:
             continue
-        # if _groups == Groups.ASC:
-        #     args.append(f"{prefix}{field.name}")
-        # elif _groups == Groups.DESC:
-        #     args.append(f"-{prefix}{field.name}")
-        # else:
-        #     subargs = generate_groups_args(_groups, prefix=f"{prefix}{field.name}__")
-        #     args.extend(subargs)
+        if _groups:
+            args.append(f"{prefix}{field.name}")
+        else:
+            subargs = generate_groups_args(_groups, prefix=f"{prefix}{field.name}__")
+            args.extend(subargs)
     return args
 
 
 def groups(model):
     def wrapper(cls):
         for name, type_ in cls.__annotations__.items():
-            # if isinstance(type_, StrawberryAuto):
-            #     type_ = Groups
+            if isinstance(type_, StrawberryAuto):
+                type_ = bool
             cls.__annotations__[name] = Optional[type_]
             setattr(cls, name, UNSET)
         return strawberry.input(cls)
@@ -54,6 +47,7 @@ def apply(groups, queryset: QuerySet) -> QuerySet:
 
 
 class StrawberryDjangoFieldGroups:
+
     def __init__(self, groups=UNSET, **kwargs):
         self.groups = groups
         super().__init__(**kwargs)
@@ -70,9 +64,9 @@ class StrawberryDjangoFieldGroups:
     def get_groups(self) -> Optional[Type]:
         if self.groups is not UNSET:
             return self.groups
-        type_ = utils.unwrap_type(self.type or self.child.type)
+        type_ = unwrap_type(self.type or self.child.type)
 
-        if utils.is_django_type(type_):
+        if is_django_type(type_):
             return type_._django_type.groups
         return None
 

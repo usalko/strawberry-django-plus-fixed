@@ -63,7 +63,7 @@ _T = TypeVar("_T")
 _M = TypeVar("_M", bound=models.Model)
 
 
-class StrawberryDjangoField(_StrawberryDjangoField, StrawberryDjangoFieldGroups):
+class StrawberryDjangoField(StrawberryDjangoFieldGroups, _StrawberryDjangoField):
     """A strawberry field for django attributes.
 
     Do not instantiate this directly. Instead, use `@field` decorator.
@@ -320,6 +320,8 @@ class StrawberryDjangoConnectionField(relay.ConnectionField, StrawberryDjangoFie
             args.append(argument("order", order))
         if "filters" not in args_names and (filters := self.get_filters()) not in (None, UNSET):
             args.append(argument("filters", filters))
+        if "groups" not in args_names and (groups := self.get_groups()) not in (None, UNSET):
+            args.append(argument("groups", groups))
 
         return args
 
@@ -476,6 +478,7 @@ def field(
         filters=filters,
         pagination=pagination,
         order=order,
+        groups=groups,
         only=only,
         select_related=select_related,
         prefetch_related=prefetch_related,
@@ -716,6 +719,7 @@ def connection(
         directives=directives or (),
         filters=filters,
         order=order,
+        groups=groups,
         only=only,
         select_related=select_related,
         prefetch_related=prefetch_related,
