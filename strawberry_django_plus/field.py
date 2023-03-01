@@ -189,15 +189,17 @@ class StrawberryDjangoField(StrawberryDjangoFieldAggregations, _StrawberryDjango
         if self.base_resolver is not None:
             result = self.resolver(source, info, args, kwargs)
         elif source is None:
-            # DISTINCT by default
-            # It's implemented as additional filter induced from results
-            distinguished_ids_filter = []
-            if resolvers._has_ability_to_apply_distinct(info.selected_fields):
-                distinguished_ids_filter = resolvers._make_filter_from_selected_fields(info.schema, info.selected_fields[0].selections, self.model)
-            if distinguished_ids_filter:
-                result = self.model._default_manager.filter(distinguished_ids_filter)
-            else:
-                result = self.model._default_manager.all().distinct()
+            # TODO: make another way to the distinct implementation
+            # # DISTINCT by default
+            # # It's implemented as additional filter induced from results
+            # distinguished_ids_filter = []
+            # if resolvers._has_ability_to_apply_distinct(info.selected_fields):
+            #     distinguished_ids_filter = resolvers._make_filter_from_selected_fields(info.schema, info.selected_fields[0].selections, self.model)
+            # if distinguished_ids_filter:
+            #     result = self.model._default_manager.filter(distinguished_ids_filter)
+            # else:
+            #     result = self.model._default_manager.all().distinct()
+            result = self.model._default_manager.all()
         else:
             # Small optimization to async resolvers avoid having to call it in an sync_to_async
             # context if the value is already cached, since it will not hit the db anymore

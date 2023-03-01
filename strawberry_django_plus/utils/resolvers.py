@@ -349,6 +349,29 @@ def _make_filter_from_selected_fields(schema: Schema, selected_fields: List[Sele
     return result
 
 
+def _simple_django_fields_mapper(selections: List[SelectedField], prefix: str, result: List[str]) -> None:
+    for selected_field in filter(lambda selected_field: not selected_field.name.startswith('__'), selections):
+        django_field_name = f'{prefix}__{camelBack_to_underscores(selected_field.name)}' if prefix else camelBack_to_underscores(
+            selected_field.name)
+        if selected_field.selections:
+            _simple_django_fields_mapper(
+                selected_field.selections, django_field_name, result)
+        else:
+            result.append(django_field_name)
+
+
+def _django_fields_from_info(info: Info, prefix: str = '') -> List[str]:
+    '''
+        There is the simple 'group by' model for distinct simulation (it uses max function for id).
+        The design:
+            Get all selected fields (if selected fields contain id, this function never called).
+            For each selected field add additional filter (id in max(id) for every field value)
+    '''
+    result = []
+    _simple_django_fields_mapper(info.selected_fields, '', result)
+    return result
+
+
 def _has_ability_to_apply_distinct(selected_fields: List[SelectedField]):
     return selected_fields and not any(any(field.name == 'id' for field in selected_field.selections) for selected_field in selected_fields)
 
@@ -402,15 +425,17 @@ def resolve_model_nodes(
         django_type = get_django_type(source, ensure_type=True)
         source = cast(Type[_M], django_type.model)
         
-    # DISTINCT by default
-    # It's implemented as additional filter induced from results
-    distinguished_ids_filter = []
-    if _has_ability_to_apply_distinct(_get_selections(info.selected_fields[0], 'edges')):
-        distinguished_ids_filter = _make_filter_from_selected_fields(info.schema, _get_selections(info.selected_fields[0], 'edges', 'node'), source)
-    if distinguished_ids_filter:
-        qs = source._default_manager.filter(distinguished_ids_filter)
-    else:
-        qs = source._default_manager.all().distinct()
+    # TODO: make another way to the distinct implementation 
+    # # DISTINCT by default
+    # # It's implemented as additional filter induced from results
+    # distinguished_ids_filter = []
+    # if _has_ability_to_apply_distinct(_get_selections(info.selected_fields[0], 'edges')):
+    #     distinguished_ids_filter = _make_filter_from_selected_fields(info.schema, _get_selections(info.selected_fields[0], 'edges', 'node'), source)
+    # if distinguished_ids_filter:
+    #     qs = source._default_manager.filter(distinguished_ids_filter)
+    # else:
+    #     qs = source._default_manager.all().distinct()
+    qs = source._default_manager.all()
 
     if origin and hasattr(origin, "get_queryset"):
         qs = origin.get_queryset(qs, info)  # type: ignore
