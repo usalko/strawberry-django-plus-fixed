@@ -16,6 +16,7 @@ from strawberry_django.utils import fields, is_django_type, unwrap_type
 from strawberry_django_plus.utils.resolvers import _django_fields_from_info
 
 from .group_concat import GroupConcat
+from .remap import Remap
 
 
 @strawberry.enum
@@ -30,7 +31,8 @@ def generate_aggregations_args(aggregations, prefix=""):
         if _aggregations is UNSET:
             continue
         if hasattr(_aggregations, '_kwargs_order') and _aggregations._kwargs_order:
-            subargs = generate_aggregations_args(_aggregations, prefix=f"{prefix}{field.name}__")
+            subargs = generate_aggregations_args(
+                _aggregations, prefix=f"{prefix}{field.name}__")
             args.extend(subargs)
         else:
             args.append(f"{prefix}{field.name}")
@@ -70,6 +72,7 @@ class StrawberryDjangoFieldAggregations:
         type_ = unwrap_type(self.type or self.child.type)
 
         if is_django_type(type_):
+            # TODO: modify type for ability to array values (List instead Optional)
             return type_._django_type.aggregations
         return None
 
@@ -86,24 +89,49 @@ class StrawberryDjangoFieldAggregations:
         '''
         result = queryset
         # TODO: put the model into _django_fields_from_info function
-        values = [field.replace(self.name + '__', '') for field in _django_fields_from_info(info)]
+        values = [field.replace(self.name + '__', '')
+                  for field in _django_fields_from_info(info)]
         # Algo:
         #  - For all selected fields (map to the values)
         #  - For all aggregated fields (aka aggregations) do GroupConcat for map to array
         # for arg in args:
-        
+
         # Exclude group from values
         values = [x for x in values if x not in args]
         result = result.values(*values)
         groups = {a: GroupConcat(a) for a in args}
         if groups:
             result = result.annotate(count=Count(1), **groups)
-        return result
+
+        def _dirty_remap(record: dict):
+            cls1 = self.origin_django_type.origin
+            cls1_instance = cls1()
+            for field in cls1._type_definition.fields:
+                if field.name in record:
+                    setattr(cls1_instance, field.name, record[field.name])
+                elif field.name == 'message':
+                    cls2_td = info.schema.get_type_by_name('TgMessage')
+                    cls2_instance = cls2_td.fields[0].origin()
+                    setattr(cls2_instance, 'id', record[f'{field.name}__id'])
+                    setattr(cls1_instance, field.name, cls2_instance)
+                elif field.name == 'peer':
+                    cls2_td = info.schema.get_type_by_name('TgInputPeer')
+                    cls2_instance = cls2_td.fields[0].origin()
+
+                    for sub_field in cls2_td.fields:
+                        if sub_field.name == 'user':
+                            cls3_td = info.schema.get_type_by_name('TgUser')
+                            cls3_instance = cls3_td.fields[0].origin()
+                            setattr(cls3_instance, 'first_name',
+                                    record['peer__user__first_name'])
+
+                            setattr(cls2_instance, 'user', cls3_instance)
+                    setattr(cls1_instance, field.name, cls2_instance)
+            return cls1_instance
+        return Remap(_dirty_remap, result)
 
     def get_queryset(
         self, queryset: QuerySet, info: Info, aggregations: Type = UNSET, **kwargs
     ):
         queryset = super().get_queryset(queryset, info, **kwargs)
         return self.apply_aggregations(queryset, info, aggregations)
-
-

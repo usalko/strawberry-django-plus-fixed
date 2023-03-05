@@ -552,9 +552,9 @@ def resolve_model_id(source: Union[Type[Node], Type[_M]], root: Model) -> Awaita
         The resolved object id
 
     """
-    id_attr = getattr(source, "id_attr", "pk")
-    assert isinstance(root, Model)
+    id_attr = getattr(source, "id_attr") if hasattr(source, "id_attr") else ("pk" if hasattr(source, "pk") else "id")
     if id_attr == "pk":
+        assert isinstance(root, Model)
         pk = root.__class__._meta.pk
         assert pk
         id_attr = pk.attname
