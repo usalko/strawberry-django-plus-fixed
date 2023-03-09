@@ -587,7 +587,7 @@ develop = false
 [package.source]
 type = "git"
 url = "https://github.com/usalko/graphql-core.git"
-reference = "fix-fields-order"
+reference = "march23"
 resolved_reference = "b402346a785a46a447e8aaff6a66676ee52c3c09"
 
 [[package]]
