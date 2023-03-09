@@ -21,7 +21,7 @@ from .remap import Remap
 
 @strawberry.enum
 class Aggregations(Enum):
-    ARRAY = "array"
+    CONCAT = "concat"
 
 
 def generate_aggregations_args(aggregations, prefix=""):
