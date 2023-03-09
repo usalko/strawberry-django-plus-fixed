@@ -1,2 +1,2 @@
 #strawberry-graphql[django]>=0.134.3
-git+https://github.com/usalko/strawberry.git@fix-fields-order
+git+https://github.com/usalko/strawberry.git@march23
