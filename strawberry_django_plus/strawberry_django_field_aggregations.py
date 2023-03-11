@@ -104,6 +104,8 @@ class StrawberryDjangoFieldAggregations:
             result = result.annotate(count=Count(1), **groups)
 
         def _dirty_remap(record: dict):
+            # TODO: Answer for question: How to get type name for the selected field
+            # Target function django_key -> object properties path
             cls1 = self.origin_django_type.origin
             cls1_instance = cls1()
             for field in cls1._type_definition.fields:
