@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Callable, Optional, Sequence, Type, TypeVar, Dict, List, cast
 
 from django.db.models.base import Model
-from django.db.models.sql.query import get_field_names_from_opts  # type:ignore
+from django.db.models.sql.query import get_field_names_from_opts  # type: ignore
 from strawberry import UNSET
 from strawberry.field import StrawberryField
 from strawberry.utils.typing import __dataclass_transform__
@@ -23,7 +23,7 @@ _T = TypeVar("_T")
 def _normalize_value(value: Any):
     if isinstance(value, list):
         return [_normalize_value(v) for v in value]
-    elif isinstance(value, GlobalID):
+    if isinstance(value, GlobalID):
         return value.node_id
 
     return value
@@ -146,7 +146,7 @@ _filters.apply = _apply
         field.connection,
     ),
 )
-def filter(  # noqa:A001
+def filter(  # noqa: A001
     model: Type[Model],
     *,
     name: Optional[str] = None,

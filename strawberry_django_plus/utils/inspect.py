@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 try:
     # Try to use the smaller/faster cache decorator if available
-    _cache = functools.cache  # type:ignore
+    _cache = functools.cache  # type: ignore
 except AttributeError:  # pragma:nocover
     _cache = functools.lru_cache
 
@@ -167,7 +167,7 @@ def get_possible_types(
 
 
 def get_possible_type_definitions(
-    gql_type: Union[TypeDefinition, StrawberryType, type]
+    gql_type: Union[TypeDefinition, StrawberryType, type],
 ) -> Generator[TypeDefinition, None, None]:
     """Resolve all possible type definitions for gql_type.
 
@@ -187,7 +187,7 @@ def get_possible_type_definitions(
         if isinstance(t, TypeDefinition):
             yield t
         elif hasattr(t, "_type_definition"):
-            yield t._type_definition  # type:ignore
+            yield t._type_definition  # type: ignore
 
 
 def get_selections(
@@ -223,7 +223,17 @@ def get_selections(
             if skip and skip["if"]:
                 continue
 
-            ret[s.alias or s.name] = s
+            f_name = s.alias or s.name
+            existing = ret.get(f_name)
+            if existing := ret.get(f_name):
+                s.selections = list(
+                    {
+                        **get_selections(existing),
+                        **get_selections(s),
+                    }.values(),
+                )
+            else:
+                ret[f_name] = s
         elif isinstance(s, (FragmentSpread, InlineFragment)):
             if typename is not None and s.type_condition != typename:
                 continue
@@ -235,9 +245,9 @@ def get_selections(
                         {
                             **get_selections(existing),
                             **get_selections(f),
-                        }.values()
+                        }.values(),
                     )
-                ret[f.name] = f
+                ret[f_name] = f
         else:  # pragma:nocover
             assert_never(s)
 
@@ -253,7 +263,7 @@ class PrefetchInspector:
     query: Query = dataclasses.field(init=False, compare=False)
 
     def __post_init__(self):
-        self.qs = cast(QuerySet, self.prefetch.queryset)  # type:ignore
+        self.qs = cast(QuerySet, self.prefetch.queryset)  # type: ignore
         self.query = self.qs.query
 
     @property
@@ -263,7 +273,7 @@ class PrefetchInspector:
         return frozenset(self.query.deferred_loading[0])
 
     @only.setter
-    def only(self, value: Optional[Iterable[str]]):
+    def only(self, value: Optional[Iterable[Optional[str]]]):
         value = frozenset(v for v in (value or []) if v is not None)
         self.query.deferred_loading = (value, len(value) == 0)
 
@@ -274,7 +284,7 @@ class PrefetchInspector:
         return frozenset(self.query.deferred_loading[0])
 
     @defer.setter
-    def defer(self, value: Optional[Iterable[str]]):
+    def defer(self, value: Optional[Iterable[Optional[str]]]):
         value = frozenset(v for v in (value or []) if v is not None)
         self.query.deferred_loading = (value, True)
 
@@ -290,11 +300,11 @@ class PrefetchInspector:
 
     @property
     def prefetch_related(self) -> List[Union[Prefetch, str]]:
-        return list(self.qs._prefetch_related_lookups)  # type:ignore
+        return list(self.qs._prefetch_related_lookups)  # type: ignore
 
     @prefetch_related.setter
     def prefetch_related(self, value: Optional[Iterable[Union[Prefetch, str]]]):
-        self.qs._prefetch_related_lookups = tuple(value or [])  # type:ignore
+        self.qs._prefetch_related_lookups = tuple(value or [])  # type: ignore
 
     @property
     def annotations(self) -> Dict[str, Expression]:
@@ -302,7 +312,7 @@ class PrefetchInspector:
 
     @annotations.setter
     def annotations(self, value: Optional[Dict[str, Expression]]):
-        self.query.annotations = value or {}  # type:ignore
+        self.query.annotations = value or {}  # type: ignore
 
     @property
     def extra(self) -> DictTree:
@@ -310,7 +320,7 @@ class PrefetchInspector:
 
     @extra.setter
     def extra(self, value: Optional[DictTree]):
-        self.query.extra = value or {}  # type:ignore
+        self.query.extra = value or {}  # type: ignore
 
     @property
     def where(self) -> WhereNode:
@@ -323,8 +333,10 @@ class PrefetchInspector:
     def merge(self, other: "PrefetchInspector", allow_unsafe_ops=False):
         if not allow_unsafe_ops and self.where != other.where:
             raise ValueError(
-                "Tried to prefetch 2 queries with different filters to the "
-                "same attribute. Use `to_attr` in this case..."
+                (
+                    "Tried to prefetch 2 queries with different filters to the "
+                    "same attribute. Use `to_attr` in this case..."
+                ),
             )
 
         # Merge select_related
@@ -333,8 +345,10 @@ class PrefetchInspector:
         # Merge only/deferred
         if not allow_unsafe_ops and (self.defer is None) != (other.defer is None):
             raise ValueError(
-                "Tried to prefetch 2 queries with different deferred "
-                "operations. Use only `only` or `deferred`, not both..."
+                (
+                    "Tried to prefetch 2 queries with different deferred "
+                    "operations. Use only `only` or `deferred`, not both..."
+                ),
             )
         if self.only is not None and other.only is not None:
             self.only = self.only | other.only

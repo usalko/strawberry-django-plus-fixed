@@ -19,11 +19,11 @@ from typing import (
     overload,
 )
 
+import strawberry
 from django.core.exceptions import PermissionDenied
 from django.db import models
 from django.db.models import Model, QuerySet
 from graphql.type.definition import GraphQLResolveInfo
-import strawberry
 from strawberry.django.context import StrawberryDjangoContext
 from strawberry.private import Private
 from strawberry.schema_directive import Location
@@ -40,7 +40,7 @@ from .utils.typing import UserType
 
 try:
     # Try to use the smaller/faster cache decorator if available
-    _cache = functools.cache  # type:ignore
+    _cache = functools.cache  # type: ignore
 except AttributeError:
     _cache = functools.lru_cache
 
@@ -67,7 +67,11 @@ When the condition fails, the following can happen (following this priority):
 4) If the field is not mandatory and any scalar or object (e.g. `String`), `null` will be returned.
 5) If the field is a relay `Connection`, an empty connection will be returned.
 """
-_desc = lambda desc: f"{desc}\n\n{_return_condition.strip()}"
+
+
+def _desc(desc):
+    return f"{desc}\n\n{_return_condition.strip()}"
+
 
 perm_safe: contextvars.ContextVar[Optional[List[bool]]] = contextvars.ContextVar(
     "perm_safe",
@@ -112,7 +116,7 @@ def filter_with_perms(qs: QuerySet[_M], info: Info) -> QuerySet[_M]:
         return qs
 
     # Do not do anything is results are cached, the target is the the retval
-    if qs._result_cache is not None:  # type:ignore
+    if qs._result_cache is not None:  # type: ignore
         set_perm_safe(False)
         return qs
 
@@ -316,14 +320,15 @@ class AuthDirective(SchemaDirectiveWithResolver):
                     message=self.message,
                     field=info.field_name,
                 )
-            elif p.type_def and issubclass(p.type_def.origin, OperationInfo):
+
+            if p.type_def and issubclass(p.type_def.origin, OperationInfo):
                 return p.type_def.origin(
                     messages=[
                         OperationMessage(
                             kind=OperationMessage.Kind.PERMISSION,
                             message=self.message,
                             field=info.field_name,
-                        )
+                        ),
                     ],
                 )
 
@@ -344,7 +349,7 @@ class AuthDirective(SchemaDirectiveWithResolver):
                 and type_def.concrete_of
                 and issubclass(type_def.concrete_of.origin, Connection)
             ):
-                return type_def.origin.from_nodes([], total_count=0)
+                return cast(Connection, type_def.origin).from_nodes([], total_count=0)
 
         # In last case, raise an error
         raise PermissionDenied(self.message)
@@ -387,7 +392,11 @@ class ConditionDirective(AuthDirective):
         )
 
     def check_condition(
-        self, root: Any, info: GraphQLResolveInfo, user: UserType, **kwargs
+        self,
+        root: Any,
+        info: GraphQLResolveInfo,
+        user: UserType,
+        **kwargs,
     ) -> bool:
         raise NotImplementedError
 
@@ -403,7 +412,11 @@ class IsAuthenticated(ConditionDirective):
     message: Private[str] = dataclasses.field(default="User is not authenticated.")
 
     def check_condition(
-        self, root: Any, info: GraphQLResolveInfo, user: UserType, **kwargs
+        self,
+        root: Any,
+        info: GraphQLResolveInfo,
+        user: UserType,
+        **kwargs,
     ) -> bool:
         return user.is_authenticated and user.is_active
 
@@ -419,7 +432,11 @@ class IsStaff(ConditionDirective):
     message: Private[str] = dataclasses.field(default="User is not a staff member.")
 
     def check_condition(
-        self, root: Any, info: GraphQLResolveInfo, user: UserType, **kwargs
+        self,
+        root: Any,
+        info: GraphQLResolveInfo,
+        user: UserType,
+        **kwargs,
     ) -> bool:
         return user.is_authenticated and user.is_staff
 
@@ -435,7 +452,11 @@ class IsSuperuser(ConditionDirective):
     message: Private[str] = dataclasses.field(default="User is not a superuser.")
 
     def check_condition(
-        self, root: Any, info: GraphQLResolveInfo, user: UserType, **kwargs
+        self,
+        root: Any,
+        info: GraphQLResolveInfo,
+        user: UserType,
+        **kwargs,
     ) -> bool:
         return user.is_authenticated and user.is_superuser
 
@@ -471,7 +492,7 @@ class PermDefinition:
         parts = perm.split(".")
         if len(parts) != 2:
             raise TypeError(
-                "Permissions need to be defined as `app_label.perm`, `app_label.` or `.perm`"
+                "Permissions need to be defined as `app_label.perm`, `app_label.` or `.perm`",
             )
         return cls(
             resource=parts[0].strip() or None,
@@ -503,7 +524,7 @@ class HasPermDirective(AuthDirective):
         description="Required perms to access this resource.",
         default_factory=list,
     )
-    any: bool = strawberry.field(  # noqa:A003
+    any: bool = strawberry.field(  # noqa: A003
         description="If any or all perms listed are required.",
         default=True,
     )
@@ -560,7 +581,7 @@ class HasPermDirective(AuthDirective):
                 self.any,
                 self.perm_checker,
                 self.obj_perm_checker,
-            )
+            ),
         )
 
     def __eq__(self, other: Self):
@@ -611,12 +632,12 @@ class HasPermDirective(AuthDirective):
             has_perm = cache.get(self)
             if has_perm is None:
                 has_perm = self._has_perm_safe(root, info, user)
-            return self.resolve_retval(helper, root, info, resolver, has_perm)
+            retval = self.resolve_retval(helper, root, info, resolver, has_perm)
         elif self.target == PermTarget.ROOT:
             has_perm = cache.get((self, root))
             if has_perm is None:
                 has_perm = self._has_obj_perm_safe(root, info, user, root)
-            return self.resolve_retval(helper, root, info, resolver, has_perm)
+            retval = self.resolve_retval(helper, root, info, resolver, has_perm)
         elif self.target == PermTarget.RETVAL:
             init_checker(self)
 
@@ -631,9 +652,11 @@ class HasPermDirective(AuthDirective):
                     ret,
                     functools.partial(self._resolve_obj_perms, helper, root, info, user),
                 )
-            return self._resolve_obj_perms(helper, root, info, user, ret)
+            retval = self._resolve_obj_perms(helper, root, info, user, ret)
         else:
-            assert_never(self.target)  # noqa:R503
+            assert_never(self.target)
+
+        return retval
 
     @resolvers.async_safe
     def _has_perm_safe(
@@ -780,8 +803,10 @@ class HasPerm(HasPermDirective):
 @strawberry.schema_directive(
     locations=[Location.FIELD_DEFINITION],
     description=_desc(
-        "Will check if the user has any/all permissions for the parent "
-        "of this field to resolve this."
+        (
+            "Will check if the user has any/all permissions for the parent "
+            "of this field to resolve this."
+        ),
     ),
 )
 @final
@@ -831,8 +856,10 @@ class HasRootPerm(HasPermDirective):
 @strawberry.schema_directive(
     locations=[Location.FIELD_DEFINITION],
     description=_desc(
-        "Will check if the user has any/all permissions for the resolved "
-        "value of this field before returning it."
+        (
+            "Will check if the user has any/all permissions for the resolved "
+            "value of this field before returning it."
+        ),
     ),
 )
 @final

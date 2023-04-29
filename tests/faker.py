@@ -1,9 +1,9 @@
 from typing import Generic, List, Type, TypeVar, cast
 
+import factory
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import AbstractUser, Group
-import factory
 
 from demo.models import Issue, Milestone, Project, Tag
 
@@ -35,8 +35,7 @@ class UserFactory(_BaseFactory["User"]):
     is_active = True
     first_name = factory.Faker("first_name")
     last_name = factory.Faker("last_name")
-    username = factory.Faker("username")
-    username = factory.Sequence(lambda n: f"username-{n}")
+    username = factory.Sequence(lambda n: f"user-{n}")
     email = factory.Faker("email")
     password = factory.LazyFunction(lambda: make_password("foobar"))
 

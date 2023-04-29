@@ -1,6 +1,7 @@
 from enum import Enum
 import dataclasses
 import types
+from contextlib import suppress
 from typing import (
     Callable,
     ForwardRef,
@@ -16,14 +17,16 @@ from typing import (
     get_origin,
 )
 
+import strawberry
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRel
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models.base import Model
 from django.db.models.fields.reverse_related import ManyToManyRel, ManyToOneRel
-import strawberry
 from strawberry import UNSET
 from strawberry.annotation import StrawberryAnnotation
+from strawberry.exceptions import PrivateStrawberryFieldError
 from strawberry.field import UNRESOLVED, StrawberryField
+from strawberry.private import is_private
 from strawberry.types.fields.resolver import StrawberryResolver
 from strawberry.unset import UnsetType
 from strawberry.utils.typing import __dataclass_transform__
@@ -41,12 +44,7 @@ from .descriptors import ModelProperty
 from .field import StrawberryDjangoField, connection, node
 from .relay import Connection, ConnectionField, Node
 from .types import resolve_model_field_type
-from .utils.resolvers import (
-    resolve_connection,
-    resolve_model_id,
-    resolve_model_node,
-    resolve_model_nodes,
-)
+from .utils.resolvers import resolve_model_id, resolve_model_node, resolve_model_nodes
 
 
 class JointType(Enum):
@@ -96,8 +94,10 @@ def _from_django_type(
         try:
             type_origin = get_origin(type_annotation.annotation)
             is_connection = issubclass(type_origin, Connection) if type_origin else False
-        except Exception:
+        except Exception:  # noqa: BLE001
             is_connection = False
+        if is_private(type_annotation.annotation):
+            raise PrivateStrawberryFieldError(name, django_type.origin)
     else:
         is_connection = False
 
@@ -148,6 +148,7 @@ def _from_django_type(
             select_related=store and store.select_related,
             prefetch_related=store and store.prefetch_related,
             disable_optimization=getattr(attr, "disable_optimization", False),
+            extensions=getattr(attr, "extensions", ()),
         )
     elif isinstance(attr, StrawberryResolver):
         field = StrawberryDjangoField(base_resolver=attr)
@@ -169,7 +170,8 @@ def _from_django_type(
     # is used to access the field data in resolvers
     try:
         model_field = get_model_field(
-            django_type.model, getattr(field, "django_name", None) or name
+            django_type.model,
+            getattr(field, "django_name", None) or name,
         )
     except FieldDoesNotExist:
         model_attr = getattr(django_type.model, name, None)
@@ -203,7 +205,7 @@ def _from_django_type(
         # resolve type of auto field
         if field.is_auto:
             field.type_annotation = StrawberryAnnotation(
-                resolve_model_field_type(model_field, django_type)
+                resolve_model_field_type(model_field, django_type),
             )
 
         if field.description is None:
@@ -212,7 +214,7 @@ def _from_django_type(
             elif isinstance(model_field, (ManyToOneRel, ManyToManyRel)):
                 description = model_field.field.help_text
             else:
-                description = getattr(model_field, "help_text")  # noqa:B009
+                description = getattr(model_field, "help_text")  # noqa: B009
 
             if description:
                 field.description = str(description)
@@ -223,18 +225,21 @@ def _from_django_type(
 def _get_fields(django_type: "StrawberryDjangoType"):
     origin = django_type.origin
     fields = {}
+    seen_fields = set()
 
     # collect all annotated fields
     for name, annotation in get_annotations(origin).items():
-        fields[name] = _from_django_type(
-            django_type,
-            name,
-            type_annotation=annotation,
-        )
+        with suppress(PrivateStrawberryFieldError):
+            fields[name] = _from_django_type(
+                django_type,
+                name,
+                type_annotation=annotation,
+            )
+        seen_fields.add(name)
 
     # collect non-annotated strawberry fields
     for name in dir(origin):
-        if name in fields:
+        if name in seen_fields:
             continue
 
         attr = getattr(origin, name, None)
@@ -313,7 +318,7 @@ def _process_type(
 
     # Make sure model is also considered a "virtual subclass" of cls
     if "is_type_of" not in cls.__dict__:
-        cls.is_type_of = lambda obj, info: isinstance(obj, (cls, model))  # type:ignore
+        cls.is_type_of = lambda obj, info: isinstance(obj, (cls, model))  # type: ignore
 
     # Default querying methods for relay
     if issubclass(cls, Node):
@@ -323,16 +328,6 @@ def _process_type(
         if not _has_own_node_resolver(cls, "resolve_nodes"):
             cls.resolve_nodes = types.MethodType(
                 lambda *args, **kwargs: resolve_model_nodes(
-                    *args,
-                    filter_perms=True,
-                    **kwargs,
-                ),
-                cls,
-            )
-
-        if not _has_own_node_resolver(cls, "resolve_connection"):
-            cls.resolve_connection = types.MethodType(
-                lambda *args, **kwargs: resolve_connection(
                     *args,
                     filter_perms=True,
                     **kwargs,
@@ -350,7 +345,7 @@ def _process_type(
 
     # restore original annotations for further use
     cls.__annotations__ = original_annotations
-    cls._django_type = django_type  # type:ignore
+    cls._django_type = django_type  # type: ignore
 
     return cls
 
@@ -379,7 +374,7 @@ class StrawberryDjangoType(_StraberryDjangoType[_O, _M]):
         field.connection,
     ),
 )
-def type(  # noqa:A001
+def type(  # noqa: A001
     model: Type[Model],
     *,
     name: Optional[str] = None,
@@ -492,7 +487,7 @@ def interface(
         field.connection,
     ),
 )
-def input(  # noqa:A001
+def input(  # noqa: A001
     model: Type[Model],
     *,
     name: Optional[str] = None,
@@ -542,7 +537,7 @@ def input(  # noqa:A001
         field.connection,
     ),
 )
-def partial(  # noqa:A001
+def partial(
     model: Type[Model],
     *,
     name: Optional[str] = None,

@@ -73,6 +73,10 @@ async def resolve_async(
             The resolver to be called after the value was awaited.
         ensure_type:
             Optional type to ensure that the retval is an instance of it.
+        info:
+            Optional gql execution info. If present, will use its implementation
+            of `is_awaitable`, which might have some optimizations. Otherwise
+            will fallback to `inspect.is_awaitable`
 
     Returns:
         An `Awaitable` with the return value of `resolver(await value)`
@@ -126,6 +130,8 @@ def resolve(value, resolver, *, ensure_type=None, info=None):
     Args:
         value:
             The value to be passed to the resolver.
+        resolver:
+            The resolver itself.
         info:
             The resolver to be called after the value was awaited.
         ensure_type:
@@ -207,7 +213,7 @@ def resolver(func, *, on_result=None, on_error=None, info=None) -> Any:
     def wrapped(*args, **kwargs):
         try:
             retval = func(*args, **kwargs)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             if on_error is None:
                 raise
 
@@ -227,7 +233,7 @@ def resolver(func, *, on_result=None, on_error=None, info=None) -> Any:
                     if not isinstance(exc, BaseException):
                         return exc
 
-                    raise exc
+                    raise
                 else:
                     if on_result is not None:
                         resolved = on_result(resolved)

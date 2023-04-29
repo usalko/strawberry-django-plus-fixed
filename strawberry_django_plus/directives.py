@@ -1,6 +1,6 @@
-from collections import defaultdict
 import dataclasses
 import functools
+from collections import defaultdict
 from typing import (
     Any,
     Callable,
@@ -25,7 +25,7 @@ from graphql.type.definition import (
     GraphQLUnionType,
     GraphQLWrappingType,
 )
-from strawberry.extensions.base_extension import Extension
+from strawberry.extensions import SchemaExtension
 from strawberry.field import StrawberryField
 from strawberry.private import Private
 from strawberry.schema.schema import Schema
@@ -35,7 +35,7 @@ from typing_extensions import TypeAlias
 
 try:
     # Try to use the smaller/faster cache decorator if available
-    _cache = functools.cache  # type:ignore
+    _cache = functools.cache  # type: ignore
 except AttributeError:
     _cache = functools.lru_cache
 
@@ -98,7 +98,7 @@ class SchemaDirectiveHelper:
     is_list: bool
 
 
-class SchemaDirectiveExtension(Extension):
+class SchemaDirectiveExtension(SchemaExtension):
     """Execute schema directives."""
 
     _helper_cache: ClassVar[Dict[Tuple[str, str], SchemaDirectiveHelper]] = {}
@@ -132,7 +132,7 @@ class SchemaDirectiveExtension(Extension):
 
         schema = cast(
             Schema,
-            info.schema._strawberry_schema,  # type:ignore
+            info.schema._strawberry_schema,  # type: ignore
         )
 
         type_def = schema.get_type_by_name(type_name)
@@ -178,7 +178,7 @@ class SchemaDirectiveExtension(Extension):
                     SchemaDirectiveHelperReturnType(
                         ret_type=type_,
                         type_def=type_def,
-                    )
+                    ),
                 )
 
         # Keep directives sorted by order of priority and avoid duplicates

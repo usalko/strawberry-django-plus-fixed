@@ -1,7 +1,6 @@
 import dataclasses
 from functools import cached_property
 from typing import (
-    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -19,6 +18,7 @@ from typing import (
     overload,
 )
 
+import strawberry
 from django.db import models
 from django.db.models import QuerySet, Max, Q
 from django.db.models.fields.related_descriptors import (
@@ -27,10 +27,10 @@ from django.db.models.fields.related_descriptors import (
     ReverseOneToOneDescriptor,
 )
 from django.db.models.query_utils import DeferredAttribute
-import strawberry
 from strawberry import UNSET
 from strawberry.annotation import StrawberryAnnotation
 from strawberry.arguments import StrawberryArgument
+from strawberry.extensions.field_extension import FieldExtension
 from strawberry.lazy_type import LazyType
 from strawberry.permission import BasePermission
 from strawberry.type import StrawberryContainer, StrawberryType
@@ -47,15 +47,11 @@ from strawberry_django.fields.field import (
 from strawberry_django.utils import get_django_model, unwrap_type
 from re import sub
 
-from . import relay
+from . import optimizer, relay
 from .descriptors import ModelProperty
-from .optimizer import OptimizerStore, PrefetchType
 from .permissions import filter_with_perms
 from .utils import resolvers
 from .utils.typing import TypeOrSequence
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = [
     "StrawberryDjangoField",
@@ -77,11 +73,11 @@ class StrawberryDjangoField(_StrawberryDjangoField):
 
     """
 
-    store: OptimizerStore
+    store: optimizer.OptimizerStore
 
     def __init__(self, *args, **kwargs):
         self.disable_optimization = kwargs.pop("disable_optimization", False)
-        self.store = OptimizerStore.with_hints(
+        self.store = optimizer.OptimizerStore.with_hints(
             only=kwargs.pop("only", None),
             select_related=kwargs.pop("select_related", None),
             prefetch_related=kwargs.pop("prefetch_related", None),
@@ -115,11 +111,11 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         ]
 
     @property
-    def type(self) -> Union[StrawberryType, type]:  # noqa:A003
+    def type(self) -> Union[StrawberryType, type]:  # noqa: A003
         return super().type
 
     @type.setter
-    def type(self, type_: Any) -> None:  # noqa:A003
+    def type(self, type_: Any) -> None:  # noqa: A003
         if type_ is not None and self.origin_django_type is None:
             resolved = type_
             if isinstance(resolved, StrawberryAnnotation):
@@ -142,7 +138,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
                 if self.pagination is UNSET or self.pagination is None:
                     self.pagination = dj_type.pagination
 
-        super(StrawberryDjangoField, self.__class__).type.fset(self, type_)  # type:ignore
+        super(StrawberryDjangoField, self.__class__).type.fset(self, type_)  # type: ignore
 
     @cached_property
     def model(self) -> Type[models.Model]:
@@ -153,7 +149,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
 
         tdef = cast(Optional[TypeDefinition], getattr(type_, "_type_definition", None))
         if tdef and tdef.concrete_of and issubclass(tdef.concrete_of.origin, relay.Connection):
-            n_type = tdef.type_var_map[relay.NodeType]  # type:ignore
+            n_type = tdef.type_var_map[relay.NodeType]  # type: ignore
             if isinstance(n_type, LazyType):
                 n_type = n_type.resolve_type()
 
@@ -182,7 +178,8 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         resolver = self.base_resolver
         assert resolver
         if not resolver.is_async:
-            resolver = resolvers.async_safe(resolver)
+            return resolvers.async_safe(resolver)
+
         return resolver
 
     def camelBack_to_underscores(self, text: str):
@@ -259,7 +256,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
                     result = getattr(source, attr.field.attname)
                 elif isinstance(attr, ForwardManyToOneDescriptor):
                     # This will raise KeyError if it is not cached
-                    result = attr.field.get_cached_value(source)  # type:ignore
+                    result = attr.field.get_cached_value(source)  # type: ignore
                 elif isinstance(attr, ReverseOneToOneDescriptor):
                     # This will raise KeyError if it is not cached
                     result = attr.related.get_cached_value(source)
@@ -267,14 +264,19 @@ class StrawberryDjangoField(_StrawberryDjangoField):
                     # This returns a queryset, it is async safe
                     result = getattr(source, attname)
                 else:
-                    raise KeyError
+                    raise KeyError  # noqa: TRY301
             except KeyError:
                 result = resolvers.getattr_async_safe(source, attname)
 
         if self.is_list:
-            qs_resolver = lambda qs: self.get_queryset_as_list(qs, info, kwargs)
+
+            def qs_resolver(qs):  # type: ignore
+                return self.get_queryset_as_list(qs, info, kwargs)
+
         else:
-            qs_resolver = lambda qs: self.get_queryset_one(qs, info, kwargs)
+
+            def qs_resolver(qs):
+                return self.get_queryset_one(qs, info, kwargs)
 
         return resolvers.resolve_result(result, info=info, qs_resolver=qs_resolver)
 
@@ -286,6 +288,16 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         kwargs: Dict[str, Any],
     ) -> Any:
         return self.safe_resolver(*args, **kwargs)
+
+    def get_queryset(self, queryset: QuerySet[_M], info: Info, *args, **kwargs) -> QuerySet[_M]:
+        qs = super().get_queryset(queryset, info, *args, **kwargs)
+
+        ext = optimizer.optimizer.get()
+        if ext is not None:
+            # If optimizer extension is enabled, optimize this queryset
+            qs = ext.optimize(qs, info=info)
+
+        return qs
 
     @resolvers.async_safe
     def get_queryset_as_list(
@@ -311,7 +323,7 @@ class StrawberryDjangoField(_StrawberryDjangoField):
         if not skip_fetch and not isinstance(self, relay.ConnectionField):
             # This is what QuerySet does internally to fetch results.
             # After this, iterating over the queryset should be async safe
-            qs._fetch_all()  # type:ignore
+            qs._fetch_all()  # type: ignore
         return qs
 
     @resolvers.async_safe
@@ -332,10 +344,11 @@ class StrawberryDjangoField(_StrawberryDjangoField):
                 if isinstance(node, relay.GlobalID):
                     assert node.resolve_type(info) == unwrap_type(self.type)
                     qs = qs.filter(pk=node.node_id)
-            return qs.get()
         except self.model.DoesNotExist:
             if not self.is_optional:
                 raise
+        else:
+            return qs.get()
 
         return None
 
@@ -361,47 +374,57 @@ class StrawberryDjangoConnectionField(relay.ConnectionField, StrawberryDjangoFie
 
         return args
 
-    @staticmethod
-    def _get_selections(selected_field: SelectedField, *path) -> List[SelectedField]:
-        if not path:
-            return selected_field.selections
-        if len(path) == 1:
-            for selected_child_field in selected_field.selections:
-                if selected_child_field.name == path[0]:
-                    return selected_child_field.selections
-            return []
-        for selected_child_field in selected_field.selections:
-            if selected_child_field.name == path[0]:
-                return StrawberryDjangoConnectionField._get_selections(selected_child_field, *path[1:])
-        return []
+#   @staticmethod
+#   def _get_selections(selected_field: SelectedField, *path) -> List[SelectedField]:
+#       if not path:
+#           return selected_field.selections
+#       if len(path) == 1:
+#           for selected_child_field in selected_field.selections:
+#               if selected_child_field.name == path[0]:
+#                   return selected_child_field.selections
+#           return []
+#       for selected_child_field in selected_field.selections:
+#           if selected_child_field.name == path[0]:
+#               return StrawberryDjangoConnectionField._get_selections(selected_child_field, *path[1:])
+#       return []
+#
+#   def resolve_nodes(
+#       self,
+#       nodes: QuerySet,
+#       info: Info,
+#       **kwargs,
+#   ):
+#       if nodes is None:
+#           # DISTINCT by default
+#           # It's implemented as additional filter induced from results
+#           distinguished_ids_filter = []
+#           if self._has_ability_to_apply_distinct(self._get_selections(info.selected_fields[0], 'edges')):
+#               distinguished_ids_filter = self._make_filter_from_selected_fields(info.schema, self._get_selections(info.selected_fields[0], 'edges', 'node'))
+#           if distinguished_ids_filter:
+#               nodes = self.model._default_manager.filter(distinguished_ids_filter)
+#           else:
+#               nodes = self.model._default_manager.all().distinct()
+#
+#           if self.origin_django_type and hasattr(self.origin_django_type.origin, "get_queryset"):
+#               nodes = cast(
+#                   QuerySet[Any],
+#                   self.origin_django_type.origin.get_queryset(nodes, info),
+#               )
+#
+#       return self.get_queryset_as_list(nodes, info, kwargs, skip_fetch=True)
 
-    def resolve_nodes(
+    @resolvers.async_safe
+    def resolve_connection(
         self,
-        source: Any,
+        nodes: QuerySet,
         info: Info,
-        args: List[Any],
-        kwargs: Dict[str, Any],
-        *,
-        nodes: Optional[QuerySet[Any]] = None,
+        **kwargs,
     ):
-        if nodes is None:
-            # DISTINCT by default
-            # It's implemented as additional filter induced from results
-            distinguished_ids_filter = []
-            if self._has_ability_to_apply_distinct(self._get_selections(info.selected_fields[0], 'edges')):
-                distinguished_ids_filter = self._make_filter_from_selected_fields(info.schema, self._get_selections(info.selected_fields[0], 'edges', 'node'))
-            if distinguished_ids_filter:
-                nodes = self.model._default_manager.filter(distinguished_ids_filter)
-            else:
-                nodes = self.model._default_manager.all().distinct()
-
-            if self.origin_django_type and hasattr(self.origin_django_type.origin, "get_queryset"):
-                nodes = cast(
-                    QuerySet[Any],
-                    self.origin_django_type.origin.get_queryset(nodes, info),
-                )
-
-        return self.get_queryset_as_list(nodes, info, kwargs, skip_fetch=True)
+        return super().resolve_connection(
+            cast(QuerySet, self.get_queryset_as_list(nodes, info, kwargs, skip_fetch=True)),
+            info,
+            **kwargs,
+        )
 
 
 @overload
@@ -419,13 +442,15 @@ def field(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> _T:
     ...
 
@@ -444,13 +469,15 @@ def field(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> Any:
     ...
 
@@ -469,13 +496,15 @@ def field(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> StrawberryDjangoField:
     ...
 
@@ -493,13 +522,15 @@ def field(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     pagination: Optional[bool] = UNSET,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
     # This init parameter is used by pyright to determine whether this field
     # is added in the constructor or not. It is not used to change
     # any behavior at the moment.
@@ -523,7 +554,7 @@ def field(
         python_name=None,
         django_name=field_name,
         graphql_name=name,
-        type_annotation=None,
+        type_annotation=StrawberryAnnotation.from_annotation(graphql_type),
         description=description,
         is_subscription=is_subscription,
         permission_classes=permission_classes or [],
@@ -539,9 +570,12 @@ def field(
         select_related=select_related,
         prefetch_related=prefetch_related,
         disable_optimization=disable_optimization,
+        extensions=extensions,
     )
+
     if resolver:
-        f = f(resolver)
+        return f(resolver)
+
     return f
 
 
@@ -556,10 +590,12 @@ def node(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
     # This init parameter is used by pyright to determine whether this field
     # is added in the constructor or not. It is not used to change
     # any behavior at the moment.
@@ -589,7 +625,7 @@ def node(
     return StrawberryDjangoNodeField(
         python_name=None,
         graphql_name=name,
-        type_annotation=None,
+        type_annotation=StrawberryAnnotation.from_annotation(graphql_type),
         description=description,
         is_subscription=is_subscription,
         permission_classes=permission_classes or [],
@@ -602,6 +638,7 @@ def node(
         select_related=select_related,
         prefetch_related=prefetch_related,
         disable_optimization=disable_optimization,
+        extensions=extensions,
     )
 
 
@@ -619,12 +656,14 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> _T:
     ...
 
@@ -642,12 +681,14 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> Any:
     ...
 
@@ -665,12 +706,14 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> StrawberryDjangoConnectionField:
     ...
 
@@ -687,12 +730,14 @@ def connection(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    graphql_type: Optional[Any] = None,
     filters: Optional[type] = UNSET,
     order: Optional[type] = UNSET,
     only: Optional[TypeOrSequence[str]] = None,
     select_related: Optional[TypeOrSequence[str]] = None,
-    prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
+    prefetch_related: Optional[TypeOrSequence[optimizer.PrefetchType]] = None,
     disable_optimization: bool = False,
+    extensions: List[FieldExtension] = (),  # type: ignore
     # This init parameter is used by pyright to determine whether this field
     # is added in the constructor or not. It is not used to change
     # any behavior at the moment.
@@ -751,7 +796,7 @@ def connection(
     f = StrawberryDjangoConnectionField(
         python_name=None,
         graphql_name=name,
-        type_annotation=None,
+        type_annotation=StrawberryAnnotation.from_annotation(graphql_type),
         description=description,
         is_subscription=is_subscription,
         permission_classes=permission_classes or [],
@@ -766,7 +811,10 @@ def connection(
         select_related=select_related,
         prefetch_related=prefetch_related,
         disable_optimization=disable_optimization,
+        extensions=extensions,
     )
+
     if resolver is not None:
-        f = f(resolver)
+        return f(resolver)
+
     return f
