@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.1.0 (2023-08-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove debug toolbar integration
+* migrate relay to strawberry's implementation ([#235](https://github.com/usalko/strawberry-django-plus-fixed/issues/235))
+
+### Features
+
+* add description to enums from django choices ([#217](https://github.com/usalko/strawberry-django-plus-fixed/issues/217)) ([4d640e7](https://github.com/usalko/strawberry-django-plus-fixed/commit/4d640e7d5cb05ed9bac79743e291121d2a9e56fa))
+* expose `__version__` on the package ([de71277](https://github.com/usalko/strawberry-django-plus-fixed/commit/de71277624f6537e3ad0a1552f12718cadba2e4d))
+* mark this lib as deprecated and add a documentation on how to migrate to strawberry_django ([ed52efe](https://github.com/usalko/strawberry-django-plus-fixed/commit/ed52efecc7d492d746466119985947e14b837089))
+* **optimizer:** support custom QS for prefetches ([e7ae685](https://github.com/usalko/strawberry-django-plus-fixed/commit/e7ae6855a62f882ce979dcc8368701ebe88f9c80))
+* remove debug toolbar integration ([463578a](https://github.com/usalko/strawberry-django-plus-fixed/commit/463578a119535ec4a3b4df12d2c3d9d1e4c1c53e))
+* use a type's get_queryset for Relay connections if it defines one ([#215](https://github.com/usalko/strawberry-django-plus-fixed/issues/215)) ([bb3af76](https://github.com/usalko/strawberry-django-plus-fixed/commit/bb3af7675a175fc3b85eedef54464198d38613da))
+
+
+### Bug Fixes
+
+* allow `field_name` to be passed for node and connections ([dc587c7](https://github.com/usalko/strawberry-django-plus-fixed/commit/dc587c7face8f9a8bfe943fd1299b73f4dc9d283))
+* allow connections to be typed as unions ([698b854](https://github.com/usalko/strawberry-django-plus-fixed/commit/698b854b03ba58eaa3af84074ca6504732bf52d9)), closes [#223](https://github.com/usalko/strawberry-django-plus-fixed/issues/223)
+* also support `auto` when checking for auto annotations ([b5b0141](https://github.com/usalko/strawberry-django-plus-fixed/commit/b5b01413e7fdb6ea1ee60cc50134a5904ea38775))
+* do not try to merge fragments, they have no name ([efa0cb4](https://github.com/usalko/strawberry-django-plus-fixed/commit/efa0cb4c4cacc24b4cd4091cb5b1cce203bc7a78))
+* fix a wrongly refactored code from previous commit ([fb0de57](https://github.com/usalko/strawberry-django-plus-fixed/commit/fb0de5750dc466da9f14e3a5dc4f95eb3e28a1da))
+* fix class inherited fields not being evaluated correctly ([15b2dd8](https://github.com/usalko/strawberry-django-plus-fixed/commit/15b2dd83a8a8b606d7455d1817966e7e9315c451)), closes [#247](https://github.com/usalko/strawberry-django-plus-fixed/issues/247)
+* fix django versioning on test actions ([7c59081](https://github.com/usalko/strawberry-django-plus-fixed/commit/7c59081c954ecdba72ae1d6b204d710282d8f3ff))
+* fix LICENSE author ([b3fa178](https://github.com/usalko/strawberry-django-plus-fixed/commit/b3fa178978dfad7004f50f73f59e761dfbf1c100))
+* fix missing checkout version ([147e41d](https://github.com/usalko/strawberry-django-plus-fixed/commit/147e41d7063fdda01913810f79c51edaada2e868))
+* inject filters/order at once to avoid one of them missing also removing the other one ([84f540e](https://github.com/usalko/strawberry-django-plus-fixed/commit/84f540ec8fe608a0bf93efb9ed692421f20e1501)), closes [#243](https://github.com/usalko/strawberry-django-plus-fixed/issues/243)
+* loosen errors for unions of django types when checking for filters/ordering ([4a97839](https://github.com/usalko/strawberry-django-plus-fixed/commit/4a97839e7190a32246cc2ea3d5297cf26a2bea37))
+* missing return for the async resolver ([f1dacec](https://github.com/usalko/strawberry-django-plus-fixed/commit/f1dacece01c8fccf966aabe6eded828ac5d0e1e2))
+* pass headers further on TestClient ([39dc5ac](https://github.com/usalko/strawberry-django-plus-fixed/commit/39dc5acb1c64c45bffc07653a0ce5e0ce3f45b13)), closes [#224](https://github.com/usalko/strawberry-django-plus-fixed/issues/224)
+* pyright tests should also not install debug-toolbar extras ([1f8600e](https://github.com/usalko/strawberry-django-plus-fixed/commit/1f8600e78c6056255214497ad32728ce2a043ef2))
+* run mkdocs with poetry ([7155e3a](https://github.com/usalko/strawberry-django-plus-fixed/commit/7155e3aaa646d13612fc3754c0c1ce5bd8813669))
+* typo in docs ([#261](https://github.com/usalko/strawberry-django-plus-fixed/issues/261)) ([72d43e5](https://github.com/usalko/strawberry-django-plus-fixed/commit/72d43e5eac9d0bebe07234010745fd19432d9d1c))
+
+
+### Documentation
+
+* add a "Migration guide" section explaning how to migrate from v2 to v3 ([3a1acbb](https://github.com/usalko/strawberry-django-plus-fixed/commit/3a1acbbd1c2e8c8cf544ccab05a006ebea330002))
+* add a note regarding debug-toolbar integration removal ([051b585](https://github.com/usalko/strawberry-django-plus-fixed/commit/051b5854ba0992558492911129ff6fa29b15c9cb))
+* fix a typo in the CHANGELOG ([f54507e](https://github.com/usalko/strawberry-django-plus-fixed/commit/f54507e485d5ad831d71a5a01bd06be09de7300b))
+* fix album related name in docs ([#219](https://github.com/usalko/strawberry-django-plus-fixed/issues/219)) ([6d120d3](https://github.com/usalko/strawberry-django-plus-fixed/commit/6d120d3eb445d16bd24663c05fdf7471d14e38e2))
+* fixes 2 typos in docs ([#227](https://github.com/usalko/strawberry-django-plus-fixed/issues/227)) ([07bb59a](https://github.com/usalko/strawberry-django-plus-fixed/commit/07bb59a48586e5737fc7b725e414c7461bdaaebb))
+
+
+### Code Refactoring
+
+* fix assertionerror when registering copied generic types on schema directives ([#238](https://github.com/usalko/strawberry-django-plus-fixed/issues/238)) ([250da52](https://github.com/usalko/strawberry-django-plus-fixed/commit/250da52c48ea17daa756bd12b3babd1b2e050628))
+* migrate relay to strawberry's implementation ([#235](https://github.com/usalko/strawberry-django-plus-fixed/issues/235)) ([d55f199](https://github.com/usalko/strawberry-django-plus-fixed/commit/d55f199de01aaa7c85e7ad12ab2e86ea274ca124))
+* remove hard dependencies on contenttypes and auth framework ([#250](https://github.com/usalko/strawberry-django-plus-fixed/issues/250)) ([b9428b0](https://github.com/usalko/strawberry-django-plus-fixed/commit/b9428b08eeb8172cebd5423aaf1b39add3a47064))
+* simplify Node methods injection code ([127124e](https://github.com/usalko/strawberry-django-plus-fixed/commit/127124ee8591c023e010e3097411da397cd9dba2))
+* support for strawberry 0.187.5+ ([493a1ad](https://github.com/usalko/strawberry-django-plus-fixed/commit/493a1ad69d1ab12562bf5d35ff34c2b8716ddf01))
+* use dataclass_transform from typing_extensions ([#236](https://github.com/usalko/strawberry-django-plus-fixed/issues/236)) ([47a194e](https://github.com/usalko/strawberry-django-plus-fixed/commit/47a194e07a9aa14dad05dcab42557a92c0a860d2))
+
+
+### Continuous Integration
+
+* add bootstrap-sha for release-please ([4a1a534](https://github.com/usalko/strawberry-django-plus-fixed/commit/4a1a534fa6dbe6a119b2d89c6728f7808c5f78fc))
+* also run release actions for release branches ([6d6c0f7](https://github.com/usalko/strawberry-django-plus-fixed/commit/6d6c0f7d21d3ff4796e59b34512a23e1222c2d5e))
+* fix tests breaking due to not having a "debug-toolbar" extra anymore ([cd621f5](https://github.com/usalko/strawberry-django-plus-fixed/commit/cd621f5bb81f1b6bba7d90e44108d049c2645ff7))
+* make sure release-please create release PRs for release branches ([c2d1a78](https://github.com/usalko/strawberry-django-plus-fixed/commit/c2d1a78d0358962cdd5a0f6f9f1f01c8a821cb60))
+
+
+### Miscellaneous
+
+* **deps:** bump requests from 2.30.0 to 2.31.0 ([f254a3b](https://github.com/usalko/strawberry-django-plus-fixed/commit/f254a3b567b8953c5ef9350d77f4fa58e6eefd8c))
+* **deps:** mark strawberry-graphql-django 0.10.0+ as not compatible ([2ee73d7](https://github.com/usalko/strawberry-django-plus-fixed/commit/2ee73d70d29ecaef58d6420bc7038464704a4b81))
+* **deps:** update dev dependencies ([3ab7c91](https://github.com/usalko/strawberry-django-plus-fixed/commit/3ab7c91b2431515b00d025cc2d8cf57efd989884))
+* **deps:** update dev dependencies ([cbfd781](https://github.com/usalko/strawberry-django-plus-fixed/commit/cbfd78168bfee0966f9e018700b12216be13518f))
+* **main:** release 2.5.0 ([078d04f](https://github.com/usalko/strawberry-django-plus-fixed/commit/078d04f0c65165cc248414b87dee02e61e2502f0))
+* **main:** release 2.6.0 ([#218](https://github.com/usalko/strawberry-django-plus-fixed/issues/218)) ([2bec3b4](https://github.com/usalko/strawberry-django-plus-fixed/commit/2bec3b4de8e21ea12431306df076a4a5ca9d165f))
+* **main:** release 2.6.1 ([#220](https://github.com/usalko/strawberry-django-plus-fixed/issues/220)) ([4066221](https://github.com/usalko/strawberry-django-plus-fixed/commit/4066221ae326d746e9ab82a7e910126711791dfd))
+* **main:** release 2.6.2 ([#228](https://github.com/usalko/strawberry-django-plus-fixed/issues/228)) ([46dc6d4](https://github.com/usalko/strawberry-django-plus-fixed/commit/46dc6d4e695a17ef98a9944cfee1c0cffcde74b3))
+* **main:** release 2.6.3 ([#232](https://github.com/usalko/strawberry-django-plus-fixed/issues/232)) ([c0c374a](https://github.com/usalko/strawberry-django-plus-fixed/commit/c0c374abc37c0a451ffa9621057a5220bc96df9f))
+* **main:** release 2.6.4 ([#239](https://github.com/usalko/strawberry-django-plus-fixed/issues/239)) ([f4115b7](https://github.com/usalko/strawberry-django-plus-fixed/commit/f4115b7b021d8444dd47c762cf30b3a20a233c73))
+* **main:** release 3.0.0 ([#240](https://github.com/usalko/strawberry-django-plus-fixed/issues/240)) ([06e90e1](https://github.com/usalko/strawberry-django-plus-fixed/commit/06e90e117008ce1c016d53fc4bc23f6a659c84eb))
+* **main:** release 3.0.1 ([#241](https://github.com/usalko/strawberry-django-plus-fixed/issues/241)) ([7dac18f](https://github.com/usalko/strawberry-django-plus-fixed/commit/7dac18f76982c10ae54335024368b005aa454439))
+* **main:** release 3.0.2 ([#251](https://github.com/usalko/strawberry-django-plus-fixed/issues/251)) ([8878561](https://github.com/usalko/strawberry-django-plus-fixed/commit/88785613217b39aeae4323c553503d16ad6e5085))
+* **main:** release 3.0.3 ([#253](https://github.com/usalko/strawberry-django-plus-fixed/issues/253)) ([6804853](https://github.com/usalko/strawberry-django-plus-fixed/commit/680485374b8e63972cb257215ae8272200751ed7))
+* **main:** release 3.1.0 ([#257](https://github.com/usalko/strawberry-django-plus-fixed/issues/257)) ([27a4df1](https://github.com/usalko/strawberry-django-plus-fixed/commit/27a4df178acf738ac925581264ba107e139203dc))
+* **main:** release 3.1.1 ([#262](https://github.com/usalko/strawberry-django-plus-fixed/issues/262)) ([f69553f](https://github.com/usalko/strawberry-django-plus-fixed/commit/f69553fd844b11275d6d1babd6c0f2e7dba0cb4a))
+* modernize CI/CD scripts and use release-please for releases ([b6ec168](https://github.com/usalko/strawberry-django-plus-fixed/commit/b6ec16879078379a88f68a6ec8633cf02e78c296))
+* **pyright:** fix pyright issues ([abacca4](https://github.com/usalko/strawberry-django-plus-fixed/commit/abacca48ae17ec33a86dcc948e8d2d4ed62e0fe0))
+
 ## [3.1.1](https://github.com/blb-ventures/strawberry-django-plus/compare/v3.1.0...v3.1.1) (2023-07-07)
 
 
