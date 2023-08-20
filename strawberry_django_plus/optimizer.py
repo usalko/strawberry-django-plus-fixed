@@ -1,10 +1,12 @@
 import contextvars
 import dataclasses
+import itertools
 from collections import defaultdict
 from typing import (
     Any,
     Callable,
     Dict,
+    Generator,
     List,
     Optional,
     Tuple,
@@ -27,7 +29,7 @@ from django.db.models.manager import BaseManager
 from django.db.models.query import QuerySet
 from graphql.language.ast import OperationType
 from graphql.type.definition import GraphQLResolveInfo, get_named_type
-from strawberry.extensions.base_extension import SchemaExtension
+from strawberry.extensions import SchemaExtension
 from strawberry.lazy_type import LazyType
 from strawberry.schema.schema import Schema
 from strawberry.types.execution import ExecutionContext
@@ -304,8 +306,7 @@ def optimize(
         store:
             Optional initial store to use for the optimization
 
-    Returns
-    -------
+    Returns:
         The optimized queryset
 
     .. _QuerySet:
@@ -383,8 +384,7 @@ def optimize(
 class OptimizerConfig:
     """Django optimization configuration.
 
-    Attributes
-    ----------
+    Attributes:
         enable_only:
             Enable `QuerySet.only` optimizations
         enable_select_related:
@@ -403,8 +403,7 @@ class OptimizerConfig:
 class OptimizerStore:
     """Django optimization store.
 
-    Attributes
-    ----------
+    Attributes:
         only:
             Set of values to optimize using `QuerySet.only`
         selected:
@@ -494,7 +493,11 @@ class OptimizerStore:
             }
 
             abort_only = set()
-            for p in self.prefetch_related:
+            # Merge already existing prefetches together
+            for p in itertools.chain(
+                qs._prefetch_related_lookups,  # type: ignore
+                self.prefetch_related,
+            ):
                 # Already added above
                 if isinstance(p, str):
                     continue
@@ -529,7 +532,10 @@ class OptimizerStore:
             for ao in abort_only:
                 to_prefetch[ao].queryset.query.deferred_loading = ([], True)  # type: ignore
 
-            qs = qs.prefetch_related(*to_prefetch.values())
+            # First prefetch_related(None) to clear all existing prefetches, and them add ours,
+            # which also contains them. This is to avoid the
+            # "lookup was already seen with a different queryset" error
+            qs = qs.prefetch_related(None).prefetch_related(*to_prefetch.values())
 
         if config.enable_select_related and self.select_related:
             qs = qs.select_related(*self.select_related)
@@ -537,7 +543,7 @@ class OptimizerStore:
         if config.enable_only and self.only:
             qs = qs.only(*self.only)
 
-        return qs  # noqa: RET504
+        return qs
 
 
 optimizer: contextvars.ContextVar[Optional["DjangoOptimizerExtension"]] = contextvars.ContextVar(
@@ -549,8 +555,7 @@ optimizer: contextvars.ContextVar[Optional["DjangoOptimizerExtension"]] = contex
 class DjangoOptimizerExtension(SchemaExtension):
     """Automatically optimize returned querysets from internal resolvers.
 
-    Attributes
-    ----------
+    Attributes:
         enable_only_optimization:
             Enable `QuerySet.only` optimizations
         enable_select_related_optimization:
@@ -558,8 +563,7 @@ class DjangoOptimizerExtension(SchemaExtension):
         enable_prefetch_related_optimization:
             Enable `QuerySet.prefetch_related` optimizations
 
-    Examples
-    --------
+    Examples:
         Add the following to your schema configuration.
 
         >>> import strawberry
@@ -592,14 +596,15 @@ class DjangoOptimizerExtension(SchemaExtension):
         self._enable_select_related = enable_select_related_optimization
         self._enable_prefetch_related = enable_prefetch_related_optimization
 
-    def on_request_start(self) -> AwaitableOrValue[None]:
-        if not self.enabled.get():
-            return
+    def on_execute(self) -> Generator[None, None, None]:
+        if enabled := self.enabled.get():
+            optimizer.set(self)
 
-        optimizer.set(self)
-
-    def on_request_end(self) -> AwaitableOrValue[None]:
-        optimizer.set(None)
+        try:
+            yield
+        finally:
+            if enabled:
+                optimizer.set(None)
 
     def resolve(
         self,

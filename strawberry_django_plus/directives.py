@@ -25,7 +25,7 @@ from graphql.type.definition import (
     GraphQLUnionType,
     GraphQLWrappingType,
 )
-from strawberry.extensions.base_extension import SchemaExtension
+from strawberry.extensions import SchemaExtension
 from strawberry.field import StrawberryField
 from strawberry.private import Private
 from strawberry.schema.schema import Schema

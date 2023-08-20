@@ -8,6 +8,7 @@ import itertools
 import math
 import sys
 import uuid
+import warnings
 from typing import (
     Any,
     Awaitable,
@@ -40,6 +41,7 @@ from graphql import GraphQLID
 from strawberry.annotation import StrawberryAnnotation
 from strawberry.arguments import StrawberryArgument
 from strawberry.custom_scalar import ScalarDefinition
+from strawberry.extensions.field_extension import FieldExtension
 from strawberry.field import StrawberryField
 from strawberry.lazy_type import LazyType
 from strawberry.permission import BasePermission
@@ -86,12 +88,10 @@ def from_base64(value: str) -> Tuple[str, str]:
         value:
             The value to be parsed
 
-    Returns
-    -------
+    Returns:
         A tuple of (TypeName, NodeID).
 
-    Raises
-    ------
+    Raises:
         ValueError:
             If the value is not in the expected format
 
@@ -116,12 +116,10 @@ def to_base64(type_: Union[str, type, TypeDefinition], node_id: Any) -> str:
         node_id:
             The node id itself
 
-    Returns
-    -------
+    Returns:
         A tuple of (TypeName, NodeID).
 
-    Raises
-    ------
+    Raises:
         ValueError:
             If the value is not a valid GraphQL type or name
 
@@ -154,8 +152,7 @@ class GlobalID:
     This object contains helpers to work with that, including method to retrieve
     the python object type or even the encoded node itself.
 
-    Attributes
-    ----------
+    Attributes:
         type_name:
             The type name part of the id
         node_id:
@@ -192,12 +189,10 @@ class GlobalID:
             value:
                 The value to be parsed, as a base64 string in the "TypeName:NodeID" format
 
-        Returns
-        -------
+        Returns:
             An instance of GLobalID
 
-        Raises
-        ------
+        Raises:
             GlobalIDValueError:
                 If the value is not in a GLobalID format
 
@@ -216,8 +211,7 @@ class GlobalID:
             info:
                 The strawberry execution info resolve the type name from
 
-        Returns
-        -------
+        Returns:
             The resolved GraphQL type for the execution info
 
         """
@@ -252,19 +246,9 @@ class GlobalID:
         self,
         info: Info,
         *,
-        required: Literal[True] = ...,
-        ensure_type: Awaitable[Type[_T]],
-    ) -> Awaitable[_T]:
-        ...
-
-    @overload
-    def resolve_node(
-        self,
-        info: Info,
-        *,
         required: Literal[True],
         ensure_type: None = ...,
-    ) -> AwaitableOrValue["Node"]:
+    ) -> "Node":
         ...
 
     @overload
@@ -274,7 +258,7 @@ class GlobalID:
         *,
         required: bool = ...,
         ensure_type: None = ...,
-    ) -> AwaitableOrValue[Optional["Node"]]:
+    ) -> Optional["Node"]:
         ...
 
     def resolve_node(self, info, *, required=False, ensure_type=None) -> Any:
@@ -295,12 +279,10 @@ class GlobalID:
                 Optionally check if the returned node is really an instance
                 of this type.
 
-        Returns
-        -------
+        Returns:
             The resolved node
 
-        Raises
-        ------
+        Raises:
             TypeError:
                 If ensure_type was provided and the type is not an instance of it
 
@@ -315,10 +297,72 @@ class GlobalID:
         if node is not None and ensure_type is not None:
             origin = get_origin(ensure_type)
             if origin and issubclass(origin, Awaitable):
+                warnings.warn("use `aresolve_node` instead", DeprecationWarning, stacklevel=1)
                 ensure_type = get_args(ensure_type)[0]
             return aio.resolve(node, lambda n: n, info=info, ensure_type=ensure_type)
 
         return node
+
+    @overload
+    async def aresolve_node(
+        self,
+        info: Info,
+        *,
+        required: Literal[True] = ...,
+        ensure_type: Type[_T],
+    ) -> _T:
+        ...
+
+    @overload
+    async def aresolve_node(
+        self,
+        info: Info,
+        *,
+        required: Literal[True],
+        ensure_type: None = ...,
+    ) -> "Node":
+        ...
+
+    @overload
+    async def aresolve_node(
+        self,
+        info: Info,
+        *,
+        required: bool = ...,
+        ensure_type: None = ...,
+    ) -> Optional["Node"]:
+        ...
+
+    async def aresolve_node(self, info, *, required=False, ensure_type=None) -> Any:
+        """Resolve the type name and node id info to the node itself.
+
+        Tip: When you know the expected type, calling `ensure_type` should help
+        not only to enforce it, but also help with typing since it will know that,
+        if this function returns successfully, the retval should be of that
+        type and not `Node`.
+
+        Args:
+            info:
+                The strawberry execution info resolve the type name from
+            required:
+                If the value is required to exist. Note that asking to ensure
+                the type automatically makes required true.
+            ensure_type:
+                Optionally check if the returned node is really an instance
+                of this type.
+
+        Returns:
+            The resolved node
+
+        Raises:
+            TypeError:
+                If ensure_type was provided and the type is not an instance of it
+
+        """
+        return await cast(
+            Awaitable,
+            self.resolve_node(info, required=required, ensure_type=ensure_type),
+        )
 
 
 # Register our GlobalID scalar
@@ -343,13 +387,11 @@ class Node(abc.ABC):
     All types that are relay ready should inherit from this interface and
     implement the following methods.
 
-    Attributes
-    ----------
+    Attributes:
         id_attr:
             (Optional) Define id field of node
 
-    Methods
-    -------
+    Methods:
         resolve_id:
             (Optional) Called to resolve the node's id.
             By default it returns `getattr(node, getattr(node, 'id_attr'. 'id'))`
@@ -380,7 +422,7 @@ class Node(abc.ABC):
                 if not isinstance(type_def, TypeDefinition):
                     raise TypeError  # noqa: TRY301
 
-                resolve_id = type_def.origin.resolve_id
+                resolve_id = cast(Node, type_def.origin).resolve_id
             except (RuntimeError, AttributeError):
                 resolve_id = cls.resolve_id
 
@@ -427,8 +469,7 @@ class Node(abc.ABC):
             root:
                 The node to resolve
 
-        Returns
-        -------
+        Returns:
             The resolved id (which is expected to be str)
 
         """
@@ -459,8 +500,7 @@ class Node(abc.ABC):
                 the results to only contain the nodes of those ids. When empty,
                 all nodes of this type shall be returned.
 
-        Returns
-        -------
+        Returns:
             An iterable of resolved nodes.
 
         """
@@ -512,8 +552,7 @@ class Node(abc.ABC):
                 if the node is required or not to exist. If not, then None should
                 be returned if it doesn't exist. Otherwise an exception should be raised.
 
-        Returns
-        -------
+        Returns:
             The resolved node or None if it was not found
 
         """
@@ -524,8 +563,7 @@ class Node(abc.ABC):
 class PageInfo:
     """Information to aid in pagination.
 
-    Attributes
-    ----------
+    Attributes:
         has_next_page:
             When paginating forwards, are there more items?
         has_previous_page:
@@ -555,8 +593,7 @@ class PageInfo:
 class Edge(Generic[NodeType]):
     """An edge in a connection.
 
-    Attributes
-    ----------
+    Attributes:
         cursor:
             A cursor for use in pagination
         node:
@@ -580,8 +617,7 @@ class Edge(Generic[NodeType]):
 class Connection(Generic[NodeType]):
     """A connection to a list of items.
 
-    Attributes
-    ----------
+    Attributes:
         page_info:
             Pagination data for this connection
         edges:
@@ -636,9 +672,10 @@ class Connection(Generic[NodeType]):
                 Returns the first n items from the list
             last:
                 Returns the items in the list that come after the specified cursor
+            kwargs:
+                Extra keyword arguments that are ignored
 
-        Returns
-        -------
+        Returns:
             The resolved `Connection`
 
         .. _Relay Pagination algorithm:
@@ -1124,6 +1161,7 @@ def node(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    extensions: List[FieldExtension] = (),  # type: ignore
     # This init parameter is used by pyright to determine whether this field
     # is added in the constructor or not. It is not used to change
     # any behavior at the moment.
@@ -1131,8 +1169,7 @@ def node(
 ) -> Any:
     """Annotate a property to create a relay query field.
 
-    Examples
-    --------
+    Examples:
         Annotating something like this:
 
         >>> @strawberry.type
@@ -1163,6 +1200,7 @@ def node(
         default_factory=default_factory,
         metadata=metadata,
         directives=directives or (),
+        extensions=extensions or (),
     )
 
 
@@ -1181,6 +1219,7 @@ def connection(
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
     graphql_type: Optional[Any] = None,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> _T:
     ...
 
@@ -1199,6 +1238,7 @@ def connection(
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
     graphql_type: Optional[Any] = None,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> Any:
     ...
 
@@ -1217,6 +1257,7 @@ def connection(
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
     graphql_type: Optional[Any] = None,
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> ConnectionField:
     ...
 
@@ -1234,6 +1275,7 @@ def connection(
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
     graphql_type: Optional[Any] = None,
+    extensions: List[FieldExtension] = (),  # type: ignore
     # This init parameter is used by pyright to determine whether this field
     # is added in the constructor or not. It is not used to change
     # any behavior at the moment.
@@ -1251,8 +1293,7 @@ def connection(
     case for this is to provide a filtered iterable of nodes by using some custom
     filter arguments.
 
-    Examples
-    --------
+    Examples:
         Annotating something like this:
 
         >>> @strawberry.type
@@ -1302,6 +1343,7 @@ def connection(
         default_factory=default_factory,
         metadata=metadata,
         directives=directives or (),
+        extensions=extensions or (),
     )
 
     if resolver is not None:
@@ -1324,6 +1366,7 @@ def input_mutation(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> _T:
     ...
 
@@ -1341,6 +1384,7 @@ def input_mutation(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> Any:
     ...
 
@@ -1358,6 +1402,7 @@ def input_mutation(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    extensions: List[FieldExtension] = (),  # type: ignore
 ) -> InputMutationField:
     ...
 
@@ -1374,6 +1419,7 @@ def input_mutation(
     default_factory: Union[Callable[..., object], object] = dataclasses.MISSING,
     metadata: Optional[Mapping[Any, Any]] = None,
     directives: Optional[Sequence[object]] = (),
+    extensions: List[FieldExtension] = (),  # type: ignore
     # This init parameter is used by pyright to determine whether this field
     # is added in the constructor or not. It is not used to change
     # any behavior at the moment.
@@ -1386,8 +1432,7 @@ def input_mutation(
     named using the mutation name, capitalizing the first letter and append "Input"
     at the end. e.g. `doSomeMutation` will generate an input type `DoSomeMutationInput`.
 
-    Examples
-    --------
+    Examples:
         Annotating something like this:
 
         >>> @strawberry.type
@@ -1428,6 +1473,7 @@ def input_mutation(
         default_factory=default_factory,
         metadata=metadata,
         directives=directives or (),
+        extensions=extensions or (),
     )
 
     if resolver is not None:

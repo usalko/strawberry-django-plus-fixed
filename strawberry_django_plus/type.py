@@ -149,6 +149,7 @@ def _from_django_type(
             select_related=store and store.select_related,
             prefetch_related=store and store.prefetch_related,
             disable_optimization=getattr(attr, "disable_optimization", False),
+            extensions=getattr(attr, "extensions", ()),
         )
     elif isinstance(attr, StrawberryResolver):
         field = StrawberryDjangoField(base_resolver=attr)
@@ -399,8 +400,7 @@ def type(  # noqa: A001
 ) -> Callable[[_T], _T]:
     """Annotates a class as a Django GraphQL type.
 
-    Examples
-    --------
+    Examples:
         It can be used like this:
 
         >>> @gql.django.type(SomeModel)
@@ -457,8 +457,7 @@ def interface(
 ) -> Callable[[_T], _T]:
     """Annotates a class as a Django GraphQL interface.
 
-    Examples
-    --------
+    Examples:
         It can be used like this:
 
         >>> @gql.django.interface(SomeModel)
@@ -506,8 +505,7 @@ def input(  # noqa: A001
 ) -> Callable[[_T], _T]:
     """Annotates a class as a Django GraphQL input.
 
-    Examples
-    --------
+    Examples:
         It can be used like this:
 
         >>> @gql.django.input(SomeModel)
@@ -555,8 +553,7 @@ def partial(
 ) -> Callable[[_T], _T]:
     """Annotates a class as a Django GraphQL partial.
 
-    Examples
-    --------
+    Examples:
         It can be used like this:
 
         >>> @gql.django.partial(SomeModel)

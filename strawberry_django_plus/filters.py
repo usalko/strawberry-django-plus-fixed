@@ -74,7 +74,7 @@ def _build_filter_kwargs(filters, joint_type: JointType = JointType.AND):
             for subfield_name_and_joint_type, subfield_value in subfield_filter_kwargs.items():
                 subfield_name, _ = subfield_name_and_joint_type
                 if isinstance(subfield_value, Enum):
-                    subfield_value = subfield_value.value  # noqa: PLW2901
+                    subfield_value = subfield_value.value
                 filter_kwargs[(f"{field_name}__{subfield_name}", joint_type)] = subfield_value
 
             filter_methods.extend(subfield_filter_methods)

@@ -103,12 +103,10 @@ def get_django_type(type_, *, ensure_type=False):
             If we should ensure that the type is indeed a django type.
             If this is false, the result might be None.
 
-    Returns
-    -------
+    Returns:
         The retrieved StrawberryDjangoType
 
-    Raises
-    ------
+    Raises:
         TypeError:
             If the type ensuring fails
 
@@ -135,8 +133,7 @@ def get_possible_types(
             Optional type definition to use to resolve type vars. This is
             mostly used internally, no need to pass this.
 
-    Yields
-    ------
+    Yields:
         All possibilities for the type
 
     """
@@ -178,8 +175,7 @@ def get_possible_type_definitions(
         gql_type:
             The type to retrieve possibilities from.
 
-    Yields
-    ------
+    Yields:
         All possibilities for the type
 
     """
@@ -207,8 +203,7 @@ def get_selections(
         typename:
             Only resolve fragments for that typename
 
-    Yields
-    ------
+    Yields:
         All possibilities for the type
 
     """
@@ -228,7 +223,17 @@ def get_selections(
             if skip and skip["if"]:
                 continue
 
-            ret[s.alias or s.name] = s
+            f_name = s.alias or s.name
+            existing = ret.get(f_name)
+            if existing := ret.get(f_name):
+                s.selections = list(
+                    {
+                        **get_selections(existing),
+                        **get_selections(s),
+                    }.values(),
+                )
+            else:
+                ret[f_name] = s
         elif isinstance(s, (FragmentSpread, InlineFragment)):
             if typename is not None and s.type_condition != typename:
                 continue
@@ -242,7 +247,7 @@ def get_selections(
                             **get_selections(f),
                         }.values(),
                     )
-                ret[f.name] = f
+                ret[f_name] = f
         else:  # pragma:nocover
             assert_never(s)
 
