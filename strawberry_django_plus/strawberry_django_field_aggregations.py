@@ -2,18 +2,16 @@ from enum import Enum
 from typing import List, Optional, Type
 
 import strawberry
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.db.models.aggregates import Count
-from django.db.models import Model
 from strawberry import UNSET
 from strawberry.arguments import StrawberryArgument
 from strawberry.auto import StrawberryAuto
 from strawberry.types import Info
-from strawberry.utils.typing import __dataclass_transform__
 from strawberry_django.arguments import argument
 from strawberry_django.utils import fields, is_django_type, unwrap_type
-
 from strawberry_django_plus.utils.resolvers import _django_fields_from_info
+from typing_extensions import dataclass_transform
 
 from .group_concat import GroupConcat
 from .remap import Remap
@@ -38,7 +36,7 @@ def generate_aggregations_args(aggregations, prefix=""):
             args.append(f"{prefix}{field.name}")
     return args
 
-
+@dataclass_transform(kw_only_default=True)
 def aggregations(model):
     def wrapper(cls):
         for name, type_ in cls.__annotations__.items():

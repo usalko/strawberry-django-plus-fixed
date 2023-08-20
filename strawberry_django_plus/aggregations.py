@@ -5,29 +5,29 @@ import strawberry
 from django.db.models.base import Model
 from strawberry import UNSET
 from strawberry.field import StrawberryField
-from strawberry.utils.typing import __dataclass_transform__
+from typing_extensions import dataclass_transform
 from strawberry_django.fields.field import field as _field
 
 from strawberry_django_plus.utils.typing import is_auto
 
 from . import field
-from .relay import connection, node
 from .strawberry_django_field_aggregations import Aggregations
 
 _T = TypeVar("_T")
 
 
-@__dataclass_transform__(
-    field_descriptors=(
-        StrawberryField,
-        _field,
-        node,
-        connection,
-        field.field,
-        field.node,
-        field.connection,
-    ),
-)
+# @__dataclass_transform__(
+#     field_descriptors=(
+#         StrawberryField,
+#         _field,
+#         node,
+#         connection,
+#         field.field,
+#         field.node,
+#         field.connection,
+#     ),
+# )
+@dataclass_transform(kw_only_default=True)
 def aggregations(
     model: Type[Model],
     *,

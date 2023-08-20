@@ -16,7 +16,6 @@ from django.db.models import Q
 from . import field
 from .type import input
 from .type import JointType, _LOGICAL_EXPRESSIONS
-from .relay import GlobalID, connection, node
 
 _T = TypeVar("_T")
 

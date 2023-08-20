@@ -41,7 +41,6 @@ from strawberry_django_plus.utils.typing import TypeOrSequence, is_auto
 from . import field
 from .descriptors import ModelProperty
 from .field import StrawberryDjangoField, connection, node
-from .relay import Connection, ConnectionField, Node
 from .types import resolve_model_field_type
 from .utils.resolvers import (
     resolve_model_id,
@@ -49,7 +48,11 @@ from .utils.resolvers import (
     resolve_model_node,
     resolve_model_nodes,
 )
-
+from strawberry.types.fields.resolver import StrawberryResolver
+from typing_extensions import Annotated, get_args, get_origin
+from strawberry.exceptions.private_strawberry_field import PrivateStrawberryFieldError
+from strawberry_django.utils import is_similar_django_type
+from contextlib import suppress
 
 try:
     from django.contrib.contenttypes.fields import GenericForeignKey, GenericRel
@@ -103,7 +106,7 @@ def _from_django_type(
     if type_annotation:
         try:
             type_origin = get_origin(type_annotation.annotation)
-            is_connection = issubclass(type_origin, Connection) if type_origin else False
+            is_connection = issubclass(type_origin, relay.Connection) if type_origin else False
         except Exception:  # noqa: BLE001
             is_connection = False
         if is_private(type_annotation.annotation):
@@ -111,7 +114,7 @@ def _from_django_type(
     else:
         is_connection = False
 
-    if is_connection or isinstance(attr, ConnectionField):
+    if is_connection or isinstance(attr, relay.fields.StrawberryField):
         field = attr
         if not isinstance(field, ConnectionField):
             field = connection()

@@ -25,7 +25,7 @@ from strawberry.relay.exceptions import NodeIDAnnotationError
 from strawberry.types.fields.resolver import StrawberryResolver
 from strawberry.types.info import Info
 from strawberry.utils.await_maybe import AwaitableOrValue
-from strawberry_django.utils import is_async
+# from strawberry_django.utils import is_async
 from typing_extensions import ParamSpec
 from strawberry.types.nodes import SelectedField
 from strawberry.schema.schema import Schema

@@ -381,18 +381,12 @@ class StrawberryDjangoConnectionExtension(relay.ConnectionExtension):
         # are somewhat in there). We are not adding pagination because it doesn't make
         # sense together with a Connection
         args: Dict[str, StrawberryArgument] = {a.python_name: a for a in field.arguments}
-        args_names = [a.python_name for a in args]
-        if "order" not in args_names and (order := self.get_order()) not in (None, UNSET):
-            args.append(argument("order", order))
-        if "filters" not in args_names and (filters := self.get_filters()) not in (None, UNSET):
-            args.append(argument("filters", filters))
-        if "aggregations" not in args_names and (aggregations := self.get_aggregations()) not in (None, UNSET):
-            args.append(argument("aggregations", aggregations))
-
         if "filters" not in args and (filters := field.get_filters()) not in (None, UNSET):
             args["filters"] = argument("filters", filters)
         if "order" not in args and (order := field.get_order()) not in (None, UNSET):
             args["order"] = argument("order", order)
+        if "aggregations" not in args and (aggregations := field.get_aggregations()) not in (None, UNSET):
+            args["aggregations"] = aggregations
 
         field.arguments = list(args.values())
 
