@@ -26,14 +26,19 @@ from django.db.models.query import Prefetch, QuerySet
 from django.db.models.sql.query import Query
 from django.db.models.sql.where import WhereNode
 from strawberry.lazy_type import LazyType
-from strawberry.type import StrawberryContainer, StrawberryType, StrawberryTypeVar
+from strawberry.type import (
+    StrawberryContainer,
+    StrawberryType,
+    StrawberryTypeVar,
+    get_object_definition,
+)
 from strawberry.types.nodes import (
     FragmentSpread,
     InlineFragment,
     SelectedField,
     Selection,
 )
-from strawberry.types.types import TypeDefinition
+from strawberry.types.types import StrawberryObjectDefinition
 from strawberry.union import StrawberryUnion
 from strawberry.utils.str_converters import to_camel_case
 from strawberry_django.fields.types import resolve_model_field_name
@@ -121,8 +126,8 @@ def get_django_type(type_, *, ensure_type=False):
 
 
 def get_possible_types(
-    gql_type: Union[TypeDefinition, StrawberryType, type],
-    type_def: Optional[TypeDefinition] = None,
+    gql_type: Union[StrawberryObjectDefinition, StrawberryType, type],
+    type_def: Optional[StrawberryObjectDefinition] = None,
 ) -> Generator[type, None, None]:
     """Resolve all possible types for gql_type.
 
@@ -137,7 +142,7 @@ def get_possible_types(
         All possibilities for the type
 
     """
-    if isinstance(gql_type, TypeDefinition):
+    if isinstance(gql_type, StrawberryObjectDefinition):
         yield from get_possible_types(gql_type.origin, type_def=gql_type)
     elif isinstance(gql_type, LazyType):
         yield from get_possible_types(gql_type.resolve_type())
@@ -167,8 +172,8 @@ def get_possible_types(
 
 
 def get_possible_type_definitions(
-    gql_type: Union[TypeDefinition, StrawberryType, type],
-) -> Generator[TypeDefinition, None, None]:
+    gql_type: Union[StrawberryObjectDefinition, StrawberryType, type],
+) -> Generator[StrawberryObjectDefinition, None, None]:
     """Resolve all possible type definitions for gql_type.
 
     Args:
@@ -179,15 +184,15 @@ def get_possible_type_definitions(
         All possibilities for the type
 
     """
-    if isinstance(gql_type, TypeDefinition):
+    if isinstance(gql_type, StrawberryObjectDefinition):
         yield gql_type
         return
 
     for t in get_possible_types(gql_type):
-        if isinstance(t, TypeDefinition):
+        if isinstance(t, StrawberryObjectDefinition):
             yield t
-        elif hasattr(t, "_type_definition"):
-            yield t._type_definition  # type: ignore
+        elif type_def := get_object_definition(t):
+            yield type_def
 
 
 def get_selections(
@@ -211,6 +216,31 @@ def get_selections(
     # later selections should replace previous ones
     ret: Dict[str, SelectedField] = {}
 
+    def merge_selections(f1: SelectedField, f2: SelectedField) -> SelectedField:
+        if not f1.selections:
+            return f2
+        if not f2.selections:
+            return f1
+
+        f1_selections = {s.name: s for s in f1.selections if isinstance(s, SelectedField)}
+        f2_selections = {s.name: s for s in f2.selections if isinstance(s, SelectedField)}
+
+        selections: dict[str, SelectedField] = {}
+        for f_name in set(f1_selections) - set(f2_selections):
+            selections[f_name] = f1_selections[f_name]
+        for f_name in set(f2_selections) - set(f1_selections):
+            selections[f_name] = f2_selections[f_name]
+        for f_name in set(f2_selections) & set(f1_selections):
+            selections[f_name] = f1_selections[f_name]
+            selections[f_name] = merge_selections(f1_selections[f_name], f2_selections[f_name])
+
+        f1.selections = list(selections.values()) + [
+            s
+            for s in (f1.selections + f2.selections)
+            if isinstance(s, (FragmentSpread, InlineFragment))
+        ]
+        return f1
+
     for s in selection.selections:
         if isinstance(s, SelectedField):
             # @include(if: <bool>)
@@ -226,12 +256,7 @@ def get_selections(
             f_name = s.alias or s.name
             existing = ret.get(f_name)
             if existing := ret.get(f_name):
-                s.selections = list(
-                    {
-                        **get_selections(existing),
-                        **get_selections(s),
-                    }.values(),
-                )
+                ret[f_name] = merge_selections(existing, s)
             else:
                 ret[f_name] = s
         elif isinstance(s, (FragmentSpread, InlineFragment)):
@@ -241,13 +266,9 @@ def get_selections(
             for f_name, f in get_selections(s, typename=typename).items():
                 existing = ret.get(f_name)
                 if existing is not None:
-                    f.selections = list(
-                        {
-                            **get_selections(existing),
-                            **get_selections(f),
-                        }.values(),
-                    )
-                ret[f_name] = f
+                    ret[f_name] = merge_selections(existing, f)
+                else:
+                    ret[f_name] = f
         else:  # pragma:nocover
             assert_never(s)
 

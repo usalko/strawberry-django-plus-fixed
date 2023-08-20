@@ -1,11 +1,13 @@
 import contextvars
 import dataclasses
 import itertools
+import typing
 from collections import defaultdict
 from typing import (
     Any,
     Callable,
     Dict,
+    ForwardRef,
     Generator,
     List,
     Optional,
@@ -16,7 +18,6 @@ from typing import (
     cast,
 )
 
-from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.db import models
 from django.db.models import Prefetch
 from django.db.models.constants import LOOKUP_SEP
@@ -29,19 +30,21 @@ from django.db.models.manager import BaseManager
 from django.db.models.query import QuerySet
 from graphql.language.ast import OperationType
 from graphql.type.definition import GraphQLResolveInfo, get_named_type
+from strawberry import relay
 from strawberry.extensions import SchemaExtension
 from strawberry.lazy_type import LazyType
+from strawberry.object_type import StrawberryObjectDefinition
 from strawberry.schema.schema import Schema
+from strawberry.type import get_object_definition
 from strawberry.types.execution import ExecutionContext
 from strawberry.types.info import Info
 from strawberry.types.nodes import InlineFragment, Selection, convert_selections
-from strawberry.types.types import TypeDefinition
 from strawberry.utils.await_maybe import AwaitableOrValue
+from strawberry.utils.typing import eval_type
 from strawberry_django.fields.types import resolve_model_field_name
 from typing_extensions import TypeAlias, assert_never, assert_type
 
 from .descriptors import ModelProperty
-from .relay import Connection, Edge, NodeType
 from .utils import resolvers
 from .utils.inspect import (
     PrefetchInspector,
@@ -51,6 +54,14 @@ from .utils.inspect import (
     get_selections,
 )
 from .utils.typing import TypeOrSequence
+
+try:
+    from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+
+except (ImportError, RuntimeError):  # pragma:nocover
+    GenericForeignKey = None
+    GenericRelation = None
+
 
 __all__ = [
     "OptimizerConfig",
@@ -63,18 +74,51 @@ __all__ = [
 _T = TypeVar("_T")
 _M = TypeVar("_M", bound=models.Model)
 
+if GenericRelation:
+    _relation_fields = (models.ManyToManyField, ManyToManyRel, ManyToOneRel, GenericRelation)
+else:
+    _relation_fields = (models.ManyToManyField, ManyToManyRel, ManyToOneRel)
 _sentinel = object()
-_interfaces: "defaultdict[Schema, Dict[TypeDefinition, List[TypeDefinition]]]" = defaultdict(dict)
+_interfaces: """
+defaultdict[
+    Schema,
+    Dict[StrawberryObjectDefinition, List[StrawberryObjectDefinition]],
+]""" = defaultdict(
+    dict,
+)
 
 
 PrefetchCallable: TypeAlias = Callable[[GraphQLResolveInfo], Prefetch]
 PrefetchType: TypeAlias = Union[str, Prefetch, PrefetchCallable]
 
 
+def _get_prefetch_queryset(
+    remote_model: Type[models.Model],
+    field,
+    config: Optional["OptimizerConfig"],
+    info: GraphQLResolveInfo,
+) -> QuerySet:
+    """Returns a model's original QuerySet or a user's specified one.
+
+    If config.prefetch_custom_queryset is set True, the type's get_queryset() as well as
+    the model's custom manager/queryset are used to generate the prefetch query.
+    """
+    if not config or not config.prefetch_custom_queryset:
+        return remote_model._base_manager.all()  # type: ignore
+    remote_type_defs = typing.get_args(field.type_annotation.annotation)
+    if len(remote_type_defs) != 1:
+        raise TypeError(f"Expected exactly one remote type: {remote_type_defs}")
+    if type(remote_type_defs[0]) is ForwardRef:
+        remote_type = eval_type(remote_type_defs[0], field.type_annotation.namespace, None)
+    else:
+        remote_type = remote_type_defs[0]
+    return remote_type.get_queryset(remote_model.objects.all(), info)
+
+
 def _get_model_hints(
     model: Type[models.Model],
     schema: Schema,
-    type_def: TypeDefinition,
+    type_def: StrawberryObjectDefinition,
     selection: Selection,
     *,
     info: GraphQLResolveInfo,
@@ -89,19 +133,28 @@ def _get_model_hints(
 
     # In case this is a relay field, find the selected edges/nodes, the selected fields
     # are actually inside edges -> node selection...
-    if type_def.concrete_of and issubclass(type_def.concrete_of.origin, Connection):
-        n_type = type_def.type_var_map[NodeType]
+    if type_def.concrete_of and issubclass(type_def.concrete_of.origin, relay.Connection):
+        # TODO: Connections are mostly used for pagination so it doesn't make sense for
+        # us to optimize those, as our prefetch would be thrown away causing an extra
+        # useless query. Is there a way for us to properly optimize this in the future?
+        if level > 0:
+            return None
+
+        n_type = type_def.type_var_map[cast(TypeVar, relay.NodeType)]
         if isinstance(n_type, LazyType):
             n_type = n_type.resolve_type()
 
-        n_type_def = cast(TypeDefinition, n_type._type_definition)  # type: ignore
+        n_type_def = get_object_definition(n_type, strict=True)
 
         for edges in get_selections(selection, typename=typename).values():
             if edges.name != "edges":
                 continue
 
-            e_type = Edge._type_definition.resolve_generic(Edge[n_type])  # type: ignore
-            e_typename = schema.config.name_converter.from_object(e_type._type_definition)
+            e_type_def = get_object_definition(relay.Edge, strict=True)
+            e_type = e_type_def.resolve_generic(relay.Edge[cast(Type[relay.Node], n_type)])
+            e_typename = schema.config.name_converter.from_object(
+                get_object_definition(e_type, strict=True),
+            )
             for node in get_selections(edges, typename=e_typename).values():
                 if node.name != "node":
                     continue
@@ -193,13 +246,13 @@ def _get_model_hints(
                     if f_store is not None:
                         model_cache.setdefault(f_model, []).append((level, f_store))
                         store |= f_store.with_prefix(path, info=info)
-            elif isinstance(model_field, GenericForeignKey):
+            elif GenericForeignKey and isinstance(model_field, GenericForeignKey):
                 # There's not much we can do to optimize generic foreign keys regarding
                 # only/select_related because they can be anything. Just prefetch_related them
                 store.prefetch_related.append(model_fieldname)
             elif isinstance(
                 model_field,
-                (models.ManyToManyField, ManyToManyRel, ManyToOneRel, GenericRelation),
+                _relation_fields,
             ):
                 f_types = list(get_possible_type_definitions(field.type))
                 if len(f_types) > 1:
@@ -227,7 +280,7 @@ def _get_model_hints(
                         ):
                             # If adding a reverse relation, make sure to select its pointer to us,
                             # or else this might causa a refetch from the database
-                            if isinstance(model_field, GenericRelation):
+                            if GenericRelation and isinstance(model_field, GenericRelation):
                                 f_store.only.append(model_field.object_id_field_name)
                                 f_store.only.append(model_field.content_type_field_name)
                             else:
@@ -250,10 +303,12 @@ def _get_model_hints(
 
                         model_cache.setdefault(remote_model, []).append((level, f_store))
 
-                        # We need to use _base_manager here instead of _default_manager because we
-                        # are getting related objects, and not querying it directly
+                        # If prefetch_custom_queryset is false, use _base_manager here instead of
+                        # _default_manager because we are getting related objects, and not querying
+                        # it directly. Else use the type's get_queryset and model's custom QuerySet.
+                        base_qs = _get_prefetch_queryset(remote_model, field, config, info)
                         f_qs = f_store.apply(
-                            remote_model._base_manager.all(),  # type: ignore
+                            base_qs,
                             info=info,
                             config=config,
                         )
@@ -343,7 +398,7 @@ def optimize(
 
                 for t in schema.schema_converter.type_map.values():
                     tdef = t.definition
-                    if not isinstance(tdef, TypeDefinition):
+                    if not isinstance(tdef, StrawberryObjectDefinition):
                         continue
 
                     if issubclass(tdef.origin, type_def.origin):
@@ -391,12 +446,15 @@ class OptimizerConfig:
             Enable `QuerySet.select_related` optimizations
         enable_prefetch_related:
             Enable `QuerySet.prefetch_related` optimizations
+        prefetch_custom_queryset:
+            Use custom instead of _base_manager for prefetch querysets
 
     """
 
     enable_only: bool = dataclasses.field(default=True)
     enable_select_related: bool = dataclasses.field(default=True)
     enable_prefetch_related: bool = dataclasses.field(default=True)
+    prefetch_custom_queryset: bool = dataclasses.field(default=False)
 
 
 @dataclasses.dataclass
@@ -590,11 +648,13 @@ class DjangoOptimizerExtension(SchemaExtension):
         enable_select_related_optimization: bool = True,
         enable_prefetch_related_optimization: bool = True,
         execution_context: Optional[ExecutionContext] = None,
+        prefetch_custom_queryset: bool = False,
     ):
         super().__init__(execution_context=execution_context)  # type: ignore
         self._enable_ony = enable_only_optimization
         self._enable_select_related = enable_select_related_optimization
         self._enable_prefetch_related = enable_prefetch_related_optimization
+        self._prefetch_custom_queryset = prefetch_custom_queryset
 
     def on_execute(self) -> Generator[None, None, None]:
         if enabled := self.enabled.get():
@@ -628,6 +688,7 @@ class DjangoOptimizerExtension(SchemaExtension):
                     ),
                     enable_select_related=self._enable_select_related,
                     enable_prefetch_related=self._enable_prefetch_related,
+                    prefetch_custom_queryset=self._prefetch_custom_queryset,
                 )
                 return resolvers.resolve_qs(optimize(qs=ret, info=info, config=config))
 
@@ -647,5 +708,6 @@ class DjangoOptimizerExtension(SchemaExtension):
             enable_only=self._enable_ony and info.operation.operation == OperationType.QUERY,
             enable_select_related=self._enable_select_related,
             enable_prefetch_related=self._enable_prefetch_related,
+            prefetch_custom_queryset=self._prefetch_custom_queryset,
         )
         return optimize(qs, info, config=config, store=store)

@@ -1,7 +1,10 @@
+import copy
 from enum import Enum
 import dataclasses
+import inspect
+import sys
 import types
-from contextlib import suppress
+from functools import cached_property
 from typing import (
     Callable,
     ForwardRef,
@@ -13,28 +16,24 @@ from typing import (
     TypeVar,
     Union,
     cast,
-    get_args,
-    get_origin,
 )
 
 import strawberry
-from django.contrib.contenttypes.fields import GenericForeignKey, GenericRel
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models.base import Model
 from django.db.models.fields.reverse_related import ManyToManyRel, ManyToOneRel
-from strawberry import UNSET
+from strawberry import UNSET, relay
 from strawberry.annotation import StrawberryAnnotation
-from strawberry.exceptions import PrivateStrawberryFieldError
-from strawberry.field import UNRESOLVED, StrawberryField
+from strawberry.exceptions import MissingFieldAnnotationError
+from strawberry.field import StrawberryField
 from strawberry.private import is_private
-from strawberry.types.fields.resolver import StrawberryResolver
+from strawberry.type import get_object_definition
 from strawberry.unset import UnsetType
-from strawberry.utils.typing import __dataclass_transform__
 from strawberry_django.fields.field import field as _field
 from strawberry_django.fields.types import get_model_field, resolve_model_field_name
 from strawberry_django.type import StrawberryDjangoType as _StraberryDjangoType
-from strawberry_django.utils import get_annotations, is_similar_django_type
-from typing_extensions import Annotated
+from strawberry_django.utils import get_annotations
+from typing_extensions import dataclass_transform
 
 from strawberry_django_plus.optimizer import OptimizerStore, PrefetchType
 from strawberry_django_plus.utils.typing import TypeOrSequence, is_auto
@@ -44,8 +43,20 @@ from .descriptors import ModelProperty
 from .field import StrawberryDjangoField, connection, node
 from .relay import Connection, ConnectionField, Node
 from .types import resolve_model_field_type
-from .utils.resolvers import resolve_model_id, resolve_model_node, resolve_model_nodes
+from .utils.resolvers import (
+    resolve_model_id,
+    resolve_model_id_attr,
+    resolve_model_node,
+    resolve_model_nodes,
+)
 
+
+try:
+    from django.contrib.contenttypes.fields import GenericForeignKey, GenericRel
+
+    GenericTypes = (GenericForeignKey, GenericRel)
+except (ImportError, RuntimeError):  # pragma:nocover
+    GenericTypes = ()
 
 class JointType(Enum):
 
@@ -63,7 +74,6 @@ class JointType(Enum):
 
 
 _LOGICAL_EXPRESSIONS = JointType.logical_expressions()
-
 
 __all = [
     "StrawberryDjangoType",
@@ -276,8 +286,11 @@ def _process_type(
     select_related: Optional[TypeOrSequence[str]] = None,
     prefetch_related: Optional[TypeOrSequence[PrefetchType]] = None,
     disable_optimization: bool = False,
+    partial: bool = False,
+    is_filter: Union[Literal["lookups"], bool] = False,
     **kwargs,
 ) -> _O:
+    is_input = kwargs.get("is_input", False)
     original_annotations = cls.__dict__.get("__annotations__", {})
 
     is_filter = kwargs.pop("is_filter", False)
@@ -292,8 +305,8 @@ def _process_type(
         origin=cls,
         model=model,
         field_cls=field_cls,
-        is_input=kwargs.get("is_input", False),
-        is_partial=kwargs.pop("partial", False),
+        is_partial=partial,
+        is_input=is_input,
         is_filter=is_filter,
         filters=filters,
         order=order,
@@ -307,47 +320,199 @@ def _process_type(
         ),
     )
 
-    fields = list(_get_fields(django_type).values())
-    cls.__annotations__ = {}
+    auto_fields: set[str] = set()
+    for field_name, field_annotation in get_annotations(cls).items():
+        annotation = field_annotation.annotation
+        if is_private(annotation):
+            continue
 
-    # update annotations and fields
-    for f in fields:
-        annotation = f.type_annotation.annotation if f.type_annotation is not None else f.type
-        if annotation is UNRESOLVED:
-            annotation = None
+        if is_auto(annotation):
+            auto_fields.add(field_name)
 
-        cls.__annotations__[f.name] = annotation
-        setattr(cls, f.name, f)
+        # FIXME: For input types it is imported to set the default value to UNSET
+        # Is there a better way of doing this?
+        if is_input:
+            # First check if the field is defined in the class. If it is,
+            # then we just need to set its default value to UNSET in case
+            # it is MISSING
+            if field_name in cls.__dict__:
+                field = cls.__dict__[field_name]
+                if isinstance(field, dataclasses.Field) and field.default is dataclasses.MISSING:
+                    field.default = UNSET
+                    if isinstance(field, StrawberryField):
+                        field.default_value = UNSET
+
+                continue
+
+            if not hasattr(cls, field_name):
+                base_field = getattr(cls, "__dataclass_fields__", {}).get(field_name)
+                if base_field is not None and isinstance(base_field, StrawberryField):
+                    new_field = copy.copy(base_field)
+                    for attr in [
+                        "_arguments",
+                        "permission_classes",
+                        "directives",
+                        "extensions",
+                    ]:
+                        old_attr = getattr(base_field, attr)
+                        if old_attr is not None:
+                            setattr(new_field, attr, old_attr[:])
+                else:
+                    new_field = _field(default=UNSET)
+
+                new_field.type_annotation = field_annotation
+                new_field.default = UNSET
+                if isinstance(base_field, StrawberryField):
+                    new_field.default_value = UNSET
+                setattr(cls, field_name, new_field)
 
     # Make sure model is also considered a "virtual subclass" of cls
     if "is_type_of" not in cls.__dict__:
         cls.is_type_of = lambda obj, info: isinstance(obj, (cls, model))  # type: ignore
 
     # Default querying methods for relay
-    if issubclass(cls, Node):
-        if not _has_own_node_resolver(cls, "resolve_node"):
-            cls.resolve_node = types.MethodType(resolve_model_node, cls)
+    if issubclass(cls, relay.Node):
+        for attr, func in [
+            ("resolve_id", resolve_model_id),
+            ("resolve_id_attr", resolve_model_id_attr),
+            ("resolve_node", resolve_model_node),
+            ("resolve_nodes", resolve_model_nodes),
+        ]:
+            existing_resolver = getattr(cls, attr, None)
+            if (
+                existing_resolver is None
+                or existing_resolver.__func__ is getattr(relay.Node, attr).__func__
+            ):
+                setattr(cls, attr, types.MethodType(func, cls))
 
-        if not _has_own_node_resolver(cls, "resolve_nodes"):
-            cls.resolve_nodes = types.MethodType(
-                lambda *args, **kwargs: resolve_model_nodes(
-                    *args,
-                    filter_perms=True,
-                    **kwargs,
-                ),
-                cls,
-            )
-
-        if not _has_own_node_resolver(cls, "resolve_id"):
-            cls.resolve_id = types.MethodType(
-                lambda cls, root, *args, **kwargs: resolve_model_id(cls, root),
-                cls,
-            )
+            # Adjust types that inherit from other types/interfaces that implement Node
+            # to make sure they pass themselves as the node type
+            meth = getattr(cls, attr)
+            if isinstance(meth, types.MethodType) and meth.__self__ is not cls:
+                setattr(cls, attr, types.MethodType(cast(classmethod, meth).__func__, cls))
 
     strawberry.type(cls, **kwargs)
 
-    # restore original annotations for further use
-    cls.__annotations__ = original_annotations
+    # update annotations and fields
+    type_def = get_object_definition(cls, strict=True)
+    new_fields: List[StrawberryField] = []
+    for f in type_def.fields:
+        django_name: Optional[str] = getattr(f, "django_name", None) or f.python_name or f.name
+        description: Optional[str] = getattr(f, "description", None)
+        type_annotation: Optional[StrawberryAnnotation] = getattr(
+            f,
+            "type_annotation",
+            None,
+        )
+
+        if f.name in auto_fields:
+            f_is_auto = True
+            # Force the field to be auto again for it to be re-evaluated
+            if type_annotation:
+                type_annotation.annotation = strawberry.auto
+        else:
+            f_is_auto = type_annotation is not None and is_auto(
+                type_annotation.annotation,
+            )
+
+        try:
+            if django_name is None:
+                raise FieldDoesNotExist  # noqa: TRY301
+            model_attr = get_model_field(django_type.model, django_name)
+        except FieldDoesNotExist as e:
+            model_attr = getattr(django_type.model, django_name, None)
+            is_relation = False
+
+            if model_attr is not None and isinstance(model_attr, ModelProperty):
+                if type_annotation is None or f_is_auto:
+                    type_annotation = StrawberryAnnotation(
+                        model_attr.type_annotation,
+                        namespace=sys.modules[model_attr.func.__module__].__dict__,
+                    )
+
+                if description is None:
+                    description = model_attr.description
+            elif model_attr is not None and isinstance(model_attr, (property, cached_property)):
+                func = model_attr.fget if isinstance(model_attr, property) else model_attr.func
+
+                if type_annotation is None or f_is_auto:
+                    if (return_type := func.__annotations__.get("return")) is None:
+                        raise MissingFieldAnnotationError(django_name, type_def.origin) from e
+
+                    type_annotation = StrawberryAnnotation(
+                        return_type,
+                        namespace=sys.modules[func.__module__].__dict__,
+                    )
+
+                if description is None and func.__doc__:
+                    description = inspect.cleandoc(func.__doc__)
+        else:
+            is_relation = model_attr.is_relation
+            if not django_name:
+                django_name = resolve_model_field_name(
+                    model_attr,
+                    is_input=django_type.is_input,
+                    is_filter=bool(django_type.is_filter),
+                )
+
+            if description is None:
+                if isinstance(model_attr, GenericTypes):
+                    f_description = None
+                elif isinstance(model_attr, (ManyToOneRel, ManyToManyRel)):
+                    f_description = model_attr.field.help_text
+                else:
+                    f_description = getattr(model_attr, "help_text", None)
+
+                if f_description:
+                    description = str(f_description)
+
+        if isinstance(f, StrawberryDjangoField) and not f.origin_django_type:
+            # If the field is a StrawberryDjangoField, just update its annotations/description/etc
+            f.type_annotation = type_annotation
+            f.description = description
+        elif (
+            not isinstance(f, StrawberryDjangoField)
+            and getattr(f, "base_resolver", None) is not None
+        ):
+            # If this is not a StrawberryDjangoField, but has a base_resolver, no need
+            # avoid forcing it to be a StrawberryDjangoField
+            new_fields.append(f)
+            continue
+        else:
+            store = getattr(f, "store", None)
+            f = StrawberryDjangoField(  # noqa: PLW2901
+                django_name=django_name,
+                description=description,
+                type_annotation=type_annotation,
+                python_name=f.python_name,
+                graphql_name=getattr(f, "graphql_name", None),
+                origin=getattr(f, "origin", None),
+                is_subscription=getattr(f, "is_subscription", False),
+                base_resolver=getattr(f, "base_resolver", None),
+                permission_classes=getattr(f, "permission_classes", ()),
+                default=getattr(f, "default", dataclasses.MISSING),
+                default_factory=getattr(f, "default_factory", dataclasses.MISSING),
+                deprecation_reason=getattr(f, "deprecation_reason", None),
+                directives=getattr(f, "directives", ()),
+                filters=getattr(f, "filters", UNSET),
+                order=getattr(f, "order", UNSET),
+                only=store and store.only,
+                select_related=store and store.select_related,
+                prefetch_related=store and store.prefetch_related,
+                disable_optimization=getattr(f, "disable_optimization", False),
+                extensions=getattr(f, "extensions", ()),
+            )
+
+        f.django_name = django_name
+        f.is_relation = is_relation
+        f.origin_django_type = django_type  # type: ignore
+
+        new_fields.append(f)
+        if f.base_resolver and f.python_name:
+            setattr(cls, f.python_name, f)
+
+    type_def = get_object_definition(cls, strict=True)
+    type_def._fields = new_fields
     cls._django_type = django_type  # type: ignore
 
     return cls
@@ -366,9 +531,9 @@ class StrawberryDjangoType(_StraberryDjangoType[_O, _M]):
     store: OptimizerStore
 
 
-@__dataclass_transform__(
+@dataclass_transform(
     order_default=True,
-    field_descriptors=(
+    field_specifiers=(
         StrawberryField,
         _field,
         node,
@@ -435,9 +600,9 @@ def type(  # noqa: A001
     return wrapper
 
 
-@__dataclass_transform__(
+@dataclass_transform(
     order_default=True,
-    field_descriptors=(
+    field_specifiers=(
         StrawberryField,
         _field,
         node,
@@ -481,9 +646,9 @@ def interface(
     return wrapper
 
 
-@__dataclass_transform__(
+@dataclass_transform(
     order_default=True,
-    field_descriptors=(
+    field_specifiers=(
         StrawberryField,
         _field,
         node,
@@ -531,9 +696,9 @@ def input(  # noqa: A001
     return wrapper
 
 
-@__dataclass_transform__(
+@dataclass_transform(
     order_default=True,
-    field_descriptors=(
+    field_specifiers=(
         StrawberryField,
         _field,
         node,

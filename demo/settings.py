@@ -25,7 +25,7 @@ INSTALLED_APPS = [
     "guardian",
     "django_extensions",
     "debug_toolbar",
-    "strawberry.django",
+    "strawberry_django",
     "strawberry_django_plus",
     "demo",
 ]
@@ -47,7 +47,8 @@ AUTHENTICATION_BACKENDS = (
 MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "strawberry_django_plus.middlewares.debug_toolbar.DebugToolbarMiddleware",
+    "strawberry_django_plus.middlewares.user_warmup.user_warmup_middleware",
+    "strawberry_django.middlewares.debug_toolbar.DebugToolbarMiddleware",
 ]
 
 TEMPLATES = [
@@ -102,9 +103,6 @@ LOGGING = {
         },
     },
 }
-
-
-STRAWBERRY_DJANGO_RELAY_MAX_RESULTS = 100
 
 SECRET_KEY = "dummy"
 

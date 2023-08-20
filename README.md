@@ -7,6 +7,18 @@
 ![python version](https://img.shields.io/pypi/pyversions/strawberry-django-plus.svg)
 ![django version](https://img.shields.io/pypi/djversions/strawberry-django-plus.svg)
 
+> **Warning**
+>
+> All the extra features provided by this lib were contributed and merged directly
+> into the official
+> [strawberry-graphql-django](https://github.com/strawberry-graphql/strawberry-graphql-django)
+> lib. Since then this lib is deprecated and the official integration should be used instead
+> and development will continue there!
+>
+> If you were using this lib before, check out the
+> [migration guide](https://blb-ventures.github.io/strawberry-django-plus/migration-guide#migrating-to-strawberry-django)
+> for more information on how to migrate your code.
+
 Enhanced Strawberry integration with Django.
 
 Built on top of [strawberry-django](https://github.com/strawberry-graphql/strawberry-graphql-django)
@@ -34,7 +46,8 @@ for information on how to use this lib.
 - [Mutations for Django](https://blb-ventures.github.io/strawberry-django-plus/mutations/),
   with CRUD support and automatic errors validation.
 - [Relay support](https://blb-ventures.github.io/strawberry-django-plus/quickstart/#relay-support)
-  for queries, connections and input mutations, all integrated with django types directly.
+  for queries, connections and input mutations, using the official strawberry's
+  [relay integration](https://strawberry.rocks/docs/guides/relay)
 - [Django Debug Toolbar integration](https://blb-ventures.github.io/strawberry-django-plus/debug-toolbar/)
   with graphiql to display metrics like SQL queries
 - Improved sync/async resolver that priorizes the model's cache to avoid have to use
