@@ -75,6 +75,7 @@ input AssigneeThroughInputPartial {
 }
 
 type AssigneeType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
   user: UserType!
   owner: Boolean!
@@ -114,6 +115,35 @@ scalar DateTime
 scalar Decimal
 
 union DeleteIssuePayload = IssueType | OperationInfo
+
+type FavoriteType implements Node {
+  """The Globally Unique ID of this object"""
+  id: GlobalID!
+  name: String!
+  user: UserType!
+  issue: IssueType!
+}
+
+"""A connection to a list of items."""
+type FavoriteTypeConnection {
+  """Pagination data for this connection"""
+  pageInfo: PageInfo!
+
+  """Contains the nodes in this connection"""
+  edges: [FavoriteTypeEdge!]!
+
+  """Total quantity of existing nodes."""
+  totalCount: Int
+}
+
+"""An edge in a connection."""
+type FavoriteTypeEdge {
+  """A cursor for use in pagination"""
+  cursor: String!
+
+  """The item at the end of the edge"""
+  node: FavoriteType!
+}
 
 """
 The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID.
@@ -157,6 +187,7 @@ input IssueInputPartial {
 }
 
 type IssueType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
   name: String!
   milestone: MilestoneType!
@@ -170,6 +201,19 @@ type IssueType implements Node {
   nameWithKind: String!
   tags: [TagType!]!
   issueAssignees: [AssigneeType!]!
+  favoriteSet(
+    """Returns the items in the list that come before the specified cursor."""
+    before: String = null
+
+    """Returns the items in the list that come after the specified cursor."""
+    after: String = null
+
+    """Returns the first n items from the list."""
+    first: Int = null
+
+    """Returns the items in the list that come after the specified cursor."""
+    last: Int = null
+  ): FavoriteTypeConnection!
 }
 
 """A connection to a list of items."""
@@ -180,7 +224,7 @@ type IssueTypeConnection {
   """Contains the nodes in this connection"""
   edges: [IssueTypeEdge!]!
 
-  """Total quantity of existing nodes"""
+  """Total quantity of existing nodes."""
   totalCount: Int
 }
 
@@ -220,13 +264,14 @@ input MilestoneOrder {
 }
 
 type MilestoneType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
   name: String!
   dueDate: Date
   project: ProjectType!
   issues: [IssueType!]!
-  asyncField(value: String!): String!
   myIssues: [IssueType!]!
+  asyncField(value: String!): String!
 }
 
 """A connection to a list of items."""
@@ -237,7 +282,7 @@ type MilestoneTypeConnection {
   """Contains the nodes in this connection"""
   edges: [MilestoneTypeEdge!]!
 
-  """Total quantity of existing nodes"""
+  """Total quantity of existing nodes."""
   totalCount: Int
 }
 
@@ -351,6 +396,7 @@ input ProjectOrder {
 }
 
 type ProjectType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
 
   """The name of the project"""
@@ -371,7 +417,7 @@ type ProjectTypeConnection {
   """Contains the nodes in this connection"""
   edges: [ProjectTypeEdge!]!
 
-  """Total quantity of existing nodes"""
+  """Total quantity of existing nodes."""
   totalCount: Int
 }
 
@@ -390,6 +436,10 @@ type Query {
     """The ID of the object."""
     id: GlobalID!
   ): Node
+  favorite(
+    """The ID of the object."""
+    id: GlobalID!
+  ): FavoriteType
 
   """Foobar"""
   issue(
@@ -427,11 +477,24 @@ type Query {
   staffList(
     """The IDs of the objects."""
     ids: [GlobalID!]!
-  ): [StaffType!]!
+  ): [StaffType]!
   issueList: [IssueType!]!
   milestoneList(filters: MilestoneFilter, order: MilestoneOrder, pagination: OffsetPaginationInput): [MilestoneType!]!
   projectList: [ProjectType!]!
   tagList: [TagType!]!
+  favoriteConn(
+    """Returns the items in the list that come before the specified cursor."""
+    before: String = null
+
+    """Returns the items in the list that come after the specified cursor."""
+    after: String = null
+
+    """Returns the first n items from the list."""
+    first: Int = null
+
+    """Returns the items in the list that come after the specified cursor."""
+    last: Int = null
+  ): FavoriteTypeConnection!
   issueConn(
     """Returns the items in the list that come before the specified cursor."""
     before: String = null
@@ -446,6 +509,9 @@ type Query {
     last: Int = null
   ): IssueTypeConnection!
   milestoneConn(
+    filters: MilestoneFilter
+    order: MilestoneOrder
+
     """Returns the items in the list that come before the specified cursor."""
     before: String = null
 
@@ -457,8 +523,6 @@ type Query {
 
     """Returns the items in the list that come after the specified cursor."""
     last: Int = null
-    filters: MilestoneFilter
-    order: MilestoneOrder
   ): MilestoneTypeConnection!
   projectConn(
     """Returns the items in the list that come before the specified cursor."""
@@ -569,6 +633,8 @@ type Query {
   ): IssueTypeConnection! @hasObjPerm(permissions: [{resource: "demo", permission: "view_issue"}], any: true)
   me: UserType
   projectConnWithResolver(
+    name: String!
+
     """Returns the items in the list that come before the specified cursor."""
     before: String = null
 
@@ -580,21 +646,19 @@ type Query {
 
     """Returns the items in the list that come after the specified cursor."""
     last: Int = null
-    name: String!
   ): ProjectTypeConnection!
 }
 
 type QuizType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
   title: String!
   sequence: Int!
 }
 
 type StaffType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
-
-  """Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only."""
-  username: String!
   email: String!
 
   """
@@ -619,7 +683,7 @@ type StaffTypeConnection {
   """Contains the nodes in this connection"""
   edges: [StaffTypeEdge!]!
 
-  """Total quantity of existing nodes"""
+  """Total quantity of existing nodes."""
   totalCount: Int
 }
 
@@ -671,6 +735,7 @@ input TagPartialListInput {
 }
 
 type TagType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
   name: String!
   issues(
@@ -696,7 +761,7 @@ type TagTypeConnection {
   """Contains the nodes in this connection"""
   edges: [TagTypeEdge!]!
 
-  """Total quantity of existing nodes"""
+  """Total quantity of existing nodes."""
   totalCount: Int
 }
 
@@ -714,10 +779,8 @@ union UpdateIssuePayload = IssueType | OperationInfo
 union UpdateProjectPayload = ProjectType | OperationInfo
 
 type UserType implements Node {
+  """The Globally Unique ID of this object"""
   id: GlobalID!
-
-  """Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only."""
-  username: String!
   email: String!
 
   """

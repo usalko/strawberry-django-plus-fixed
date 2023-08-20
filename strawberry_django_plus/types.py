@@ -19,8 +19,9 @@ from django.db import models
 from django.db.models.fields import NOT_PROVIDED
 from django.db.models.fields.related import ManyToManyField
 from django.db.models.fields.reverse_related import ForeignObjectRel
-from strawberry import UNSET
+from strawberry import UNSET, relay
 from strawberry.custom_scalar import ScalarWrapper
+from strawberry.enum import EnumValueDefinition
 from strawberry.file_uploads import Upload
 from strawberry.type import StrawberryType
 from strawberry.utils.str_converters import capitalize_first, to_camel_case
@@ -37,7 +38,6 @@ from strawberry_django.fields.types import resolve_model_field_type as _resolve_
 from strawberry_django.filters import DjangoModelFilterInput, FilterLookup
 from typing_extensions import Self
 
-from . import relay
 from .settings import config
 
 if TYPE_CHECKING:
@@ -98,21 +98,6 @@ def register(
         return type_
 
     return _wrapper
-
-
-@strawberry.type(
-    description="Generic type for objects that implements the `Node` interface.",
-)
-class NodeType(relay.Node):
-    """Set the value to the selected node."""
-
-    id: relay.GlobalID  # noqa: A003
-
-    def __eq__(self, other: Self):
-        return self.__class__ == other.__class__ and self.id == other.id
-
-    def __hash__(self):
-        return hash((self.__class__, self.id))
 
 
 @strawberry.input(
@@ -269,7 +254,9 @@ def resolve_model_field_type(
         if strawberry_enum is None:
             # Generate automatic Enum class for standard django's "choices" fields
             meta = field.model._meta
-            auto_enum_class_fields = {c[0]: c[0] for c in choices}
+            auto_enum_class_fields = {
+                c[0]: EnumValueDefinition(value=c[0], description=c[1]) for c in choices
+            }
             auto_enum_class_name = "".join(
                 (
                     capitalize_first(to_camel_case(meta.app_label)),
@@ -297,7 +284,7 @@ def resolve_model_field_type(
 
             retval = {
                 strawberry.ID: relay.GlobalID,
-                DjangoModelType: NodeType,
+                DjangoModelType: relay.Node,
                 DjangoModelFilterInput: NodeInput,
                 OneToOneInput: NodeInput,
                 OneToManyInput: NodeInput,

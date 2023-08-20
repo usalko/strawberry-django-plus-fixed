@@ -3,19 +3,20 @@ from typing import Any, Callable, Optional, Sequence, Type, TypeVar, Dict, List,
 
 from django.db.models.base import Model
 from django.db.models.sql.query import get_field_names_from_opts  # type: ignore
-from strawberry import UNSET
+from strawberry import UNSET, relay
 from strawberry.field import StrawberryField
-from strawberry.utils.typing import __dataclass_transform__
 from strawberry_django import filters as _filters
 from strawberry_django import utils
 from strawberry_django.fields.field import field as _field
+from typing_extensions import dataclass_transform
 
 from django.db.models import QuerySet
 from django.db.models import Q
 
 from . import field
+from .type import input
+from .type import JointType, _LOGICAL_EXPRESSIONS
 from .relay import GlobalID, connection, node
-from .type import input, JointType, _LOGICAL_EXPRESSIONS
 
 _T = TypeVar("_T")
 
@@ -23,7 +24,7 @@ _T = TypeVar("_T")
 def _normalize_value(value: Any):
     if isinstance(value, list):
         return [_normalize_value(v) for v in value]
-    if isinstance(value, GlobalID):
+    if isinstance(value, relay.GlobalID):
         return value.node_id
 
     return value
@@ -134,13 +135,13 @@ def _apply(filters, queryset: QuerySet, info=UNSET, pk=UNSET) -> QuerySet:
 _filters.apply = _apply
 
 
-@__dataclass_transform__(
+@dataclass_transform(
     order_default=True,
-    field_descriptors=(
+    field_specifiers=(
         StrawberryField,
         _field,
-        node,
-        connection,
+        relay.node,
+        relay.connection,
         field.field,
         field.node,
         field.connection,

@@ -24,15 +24,16 @@ from django.core.exceptions import PermissionDenied
 from django.db import models
 from django.db.models import Model, QuerySet
 from graphql.type.definition import GraphQLResolveInfo
+from strawberry import Schema, relay
 from strawberry.django.context import StrawberryDjangoContext
 from strawberry.private import Private
+from strawberry.schema.schema_converter import GraphQLCoreConverter
 from strawberry.schema_directive import Location
 from strawberry.types.info import Info
 from strawberry.utils.await_maybe import AwaitableOrValue
 from typing_extensions import Self, assert_never, final
 
 from .directives import SchemaDirectiveHelper, SchemaDirectiveWithResolver
-from .relay import Connection, GlobalID
 from .types import OperationInfo, OperationMessage
 from .utils import aio, resolvers
 from .utils.query import filter_for_user
@@ -48,7 +49,7 @@ try:
     from .integrations.guardian import get_user_or_anonymous
 
     get_user_or_anonymous = resolvers.async_safe(get_user_or_anonymous)
-except ImportError:
+except (ImportError, RuntimeError):
     # Access the user's id to force it to be loaded from the database
     get_user_or_anonymous = resolvers.async_safe(lambda u: (u, u.id)[0])
 
@@ -132,7 +133,7 @@ def filter_with_perms(qs: QuerySet[_M], info: Info) -> QuerySet[_M]:
 
         qs = filter_for_user(
             qs,
-            cast(UserType, user),
+            user,
             [p.perm for p in check.permissions],
             any_perm=check.any,
             with_superuser=check.with_superuser,
@@ -166,7 +167,7 @@ def get_with_perms(
 
 @overload
 def get_with_perms(
-    pk: GlobalID,
+    pk: relay.GlobalID,
     info: Info,
     *,
     required: Literal[True],
@@ -177,7 +178,7 @@ def get_with_perms(
 
 @overload
 def get_with_perms(
-    pk: GlobalID,
+    pk: relay.GlobalID,
     info: Info,
     *,
     required: bool = ...,
@@ -188,7 +189,7 @@ def get_with_perms(
 
 @overload
 def get_with_perms(
-    pk: GlobalID,
+    pk: relay.GlobalID,
     info: Info,
     *,
     required: Literal[True],
@@ -198,7 +199,7 @@ def get_with_perms(
 
 @overload
 def get_with_perms(
-    pk: GlobalID,
+    pk: relay.GlobalID,
     info: Info,
     *,
     required: bool = ...,
@@ -207,7 +208,7 @@ def get_with_perms(
 
 
 def get_with_perms(pk, info, *, required=False, model=None):
-    if isinstance(pk, GlobalID):
+    if isinstance(pk, relay.GlobalID):
         instance = pk.resolve_node(info, required=required, ensure_type=model)
         if aio.is_awaitable(instance, info=info):
             instance = resolvers.resolve_sync(instance)
@@ -226,7 +227,7 @@ def get_with_perms(pk, info, *, required=False, model=None):
     user = cast(StrawberryDjangoContext, info.context).request.user
     for check in checks:
         f = any if check.any else all
-        checker = check.obj_perm_checker(info, cast(UserType, user))
+        checker = check.obj_perm_checker(info, user)
         if not f(checker(p, instance) for p in check.permissions):
             raise PermissionDenied(check.message)
 
@@ -255,7 +256,7 @@ class AuthDirective(SchemaDirectiveWithResolver):
         context = cast(StrawberryDjangoContext, info.context)
         resolver = functools.partial(_next, root, info, *args, **kwargs)
 
-        user = cast(UserType, context.request.user)
+        user = context.request.user
         if not getattr(context, _user_ensured_attr, False):
             return aio.resolve(
                 cast(UserType, get_user_or_anonymous(user)),
@@ -275,7 +276,7 @@ class AuthDirective(SchemaDirectiveWithResolver):
             resolver,
             root,
             info,
-            cast(UserType, user),
+            user,
             **kwargs,
         )
 
@@ -347,9 +348,20 @@ class AuthDirective(SchemaDirectiveWithResolver):
             if (
                 type_def
                 and type_def.concrete_of
-                and issubclass(type_def.concrete_of.origin, Connection)
+                and issubclass(type_def.concrete_of.origin, relay.Connection)
             ):
-                return cast(Connection, type_def.origin).from_nodes([], total_count=0)
+                strawberry_schema: Schema = info.schema.extensions[
+                    GraphQLCoreConverter.DEFINITION_BACKREF
+                ]
+                field = strawberry_schema.get_field_for_type(info.field_name, info.parent_type.name)
+                assert field is not None
+                return cast(relay.Connection, type_def.origin).resolve_connection(
+                    [],
+                    info=Info(
+                        _raw_info=info,
+                        _field=field,
+                    ),
+                )
 
         # In last case, raise an error
         raise PermissionDenied(self.message)
@@ -438,7 +450,7 @@ class IsStaff(ConditionDirective):
         user: UserType,
         **kwargs,
     ) -> bool:
-        return user.is_authenticated and user.is_staff
+        return user.is_authenticated and getattr(user, "is_staff", False)
 
 
 @strawberry.schema_directive(
@@ -458,7 +470,7 @@ class IsSuperuser(ConditionDirective):
         user: UserType,
         **kwargs,
     ) -> bool:
-        return user.is_authenticated and user.is_superuser
+        return user.is_authenticated and getattr(user, "is_superuser", False)
 
 
 @strawberry.input(description="Permission definition for schema directives.")
@@ -490,7 +502,7 @@ class PermDefinition:
     @classmethod
     def from_perm(cls, perm: str):
         parts = perm.split(".")
-        if len(parts) != 2:
+        if len(parts) != 2:  # noqa: PLR2004
             raise TypeError(
                 "Permissions need to be defined as `app_label.perm`, `app_label.` or `.perm`",
             )
@@ -621,7 +633,7 @@ class HasPermDirective(AuthDirective):
         user: UserType,
         **kwargs,
     ):
-        if self.with_superuser and user.is_active and user.is_superuser:
+        if self.with_superuser and user.is_active and getattr(user, "is_superuser", False):
             return self.resolve_retval(helper, root, info, resolver, True)
         if self.with_anonymous and user.is_anonymous:
             return self.resolve_retval(helper, root, info, resolver, False)
