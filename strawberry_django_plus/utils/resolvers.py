@@ -33,6 +33,7 @@ from re import sub
 
 from .aio import is_awaitable, resolve_async
 from .inspect import get_django_type
+from asyncio import get_event_loop, get_running_loop
 
 _T = TypeVar("_T")
 _M = TypeVar("_M", bound=Model)
@@ -40,6 +41,22 @@ _R = TypeVar("_R")
 _P = ParamSpec("_P")
 _sentinel = object()
 
+
+def is_async() -> bool:
+     # django uses the same method to detect async operation
+     # https://github.com/django/django/blob/76c0b32f826469320c59709d31e2f2126dd7c505/django/utils/asyncio.py 
+     # https://github.com/django/django/blob/bb076476cf560b988f8d80dbbc4a3c85df54b1b9/django/utils/asyncio.py
+     try:
+         event_loop = get_event_loop()
+         get_running_loop()
+     except RuntimeError:
+         pass
+         return False
+     else:
+         if event_loop.is_running():
+             return True
+     return False
+ 
 
 def _async_to_sync(
     func: Callable[[Awaitable[_T]], Coroutine[Any, Any, _T]],
